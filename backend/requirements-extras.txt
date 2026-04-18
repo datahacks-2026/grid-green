@@ -1,0 +1,19 @@
+# Optional / heavy dependencies. Install only on machines that need them.
+#
+#   pip install -r requirements-extras.txt
+#
+# All of these are auto-detected at runtime — the app gracefully degrades
+# to lighter alternatives if any of these are missing.
+
+# Real Prophet forecaster (else: seasonal-naive baseline).
+prophet==1.1.6
+
+# Real semantic embeddings for RAG (else: TF-IDF cosine).
+# Use this on Brev for the NVIDIA sponsor evidence run.
+sentence-transformers==3.3.1
+
+# Snowflake landing for EIA + Cortex VECTOR storage (else: SQLite + TF-IDF).
+snowflake-connector-python==3.12.4
+
+# W&B for experiment tracking on the Brev workload.
+wandb==0.18.7

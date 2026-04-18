@@ -1,0 +1,145 @@
+"""Smoke tests: scaffold-level correctness for Person A's slice.
+
+Run from `backend/`:
+    pytest -q
+"""
+
+from __future__ import annotations
+
+import os
+
+os.environ.setdefault("CORS_ALLOW_ORIGINS", "http://localhost:3000")
+# Disable rate limiting noise in tests by raising the cap; doesn't change shapes.
+os.environ.setdefault("RATE_LIMIT_PER_MINUTE", "100000")
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from app.main import app  # noqa: E402
+
+client = TestClient(app)
+
+
+# ---------------------------------------------------------------------------
+# Health + grid
+# ---------------------------------------------------------------------------
+
+def test_ping() -> None:
+    r = client.get("/ping")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+
+
+def test_check_grid_default_region() -> None:
+    r = client.get("/api/check_grid")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["region"] == "CISO"
+    assert body["current_gco2_kwh"] > 0
+    assert body["trend"] in {"rising", "falling", "flat"}
+
+
+def test_find_clean_window_shape() -> None:
+    r = client.get("/api/find_clean_window", params={"region": "CISO", "hours_needed": 4})
+    assert r.status_code == 200
+    body = r.json()
+    assert "optimal_start" in body
+    assert "expected_gco2_kwh" in body
+    assert "current_gco2_kwh" in body
+    assert "co2_savings_pct" in body
+    assert isinstance(body["forecast_48h"], list)
+    assert len(body["forecast_48h"]) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Estimator
+# ---------------------------------------------------------------------------
+
+def test_estimate_carbon_with_known_model() -> None:
+    code = """
+from transformers import AutoModel
+model = AutoModel.from_pretrained('google/flan-t5-large')
+model.fit(x, y, epochs=3, batch_size=16)
+""".strip()
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["co2_grams_now"] >= 0
+    assert body["confidence"] in {"low", "medium", "high"}
+    assert any(p["pattern"] == "from_pretrained" for p in body["detected_patterns"])
+
+
+def test_estimate_carbon_rejects_oversized_payload() -> None:
+    big_code = "x = 1\n" * 200_000
+    r = client.post("/api/estimate_carbon", json={"code": big_code, "region": "CISO"})
+    assert r.status_code == 413
+
+
+def test_estimate_carbon_rejects_bad_region() -> None:
+    r = client.post("/api/estimate_carbon", json={"code": "print(1)", "region": "ZZZZ"})
+    # Pydantic enum rejection happens at validation → 422.
+    assert r.status_code in {400, 422}
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — RAG / suggest_greener
+# ---------------------------------------------------------------------------
+
+def test_suggest_greener_returns_real_alternative() -> None:
+    code = """
+from transformers import AutoModelForSeq2SeqLM
+m = AutoModelForSeq2SeqLM.from_pretrained('google/flan-t5-xxl')
+""".strip()
+    r = client.post("/api/suggest_greener", json={"code": code})
+    assert r.status_code == 200
+    suggestions = r.json()["suggestions"]
+    assert suggestions, "expected at least one greener suggestion for flan-t5-xxl"
+    s = suggestions[0]
+    assert s["alternative_snippet"] != s["original_snippet"]
+    assert 0 < s["carbon_saved_pct"] <= 100
+    assert 0 < s["performance_retained_pct"] <= 100
+    assert s["citation"]
+
+
+def test_suggest_greener_no_models_returns_empty() -> None:
+    r = client.post("/api/suggest_greener", json={"code": "print('hello world')"})
+    assert r.status_code == 200
+    assert r.json()["suggestions"] == []
+
+
+# ---------------------------------------------------------------------------
+# Optional context routes
+# ---------------------------------------------------------------------------
+
+def test_campus_heat_summary_uses_sample_csv() -> None:
+    r = client.get("/api/context/campus_heat")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source"] == "scripps_ucsd_mobile_weather"
+    assert body["n_points"] > 0
+    assert body["n_stations"] >= 1
+    assert body["mean_temperature_c"] is not None
+
+
+# ---------------------------------------------------------------------------
+# MCP server module imports + tool registration
+# ---------------------------------------------------------------------------
+
+def test_mcp_server_imports_and_registers_tools() -> None:
+    import mcp_server
+
+    # Internal: FastMCP exposes a list of registered tools.
+    tools = mcp_server.mcp._tool_manager.list_tools()  # type: ignore[attr-defined]
+    names = {t.name for t in tools}
+    assert {"check_grid", "find_clean_window", "estimate_carbon", "suggest_greener"}.issubset(names)
+
+
+# ---------------------------------------------------------------------------
+# DLT pipeline (local fallback path)
+# ---------------------------------------------------------------------------
+
+def test_dlt_local_runs_without_data() -> None:
+    # Just ensure the script imports and run_local() handles empty data
+    # without raising. Real run is exercised after ingestion.
+    from scripts import dlt_pipeline
+
+    dlt_pipeline.run_local()

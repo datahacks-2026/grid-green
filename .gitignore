@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.local
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Next
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editors
+.idea/
+.vscode/
+*.swp
+.DS_Store
+.pytest_cache/
+*.tsbuildinfo
+
+# Local data
+backend/data/*.sqlite
+backend/data/*.db
+backend/backend/data/*.sqlite
+backend/backend/data/*.db
+backend/data/cache/
+backend/data/raw/
+*.log
+
+# Build artifacts
+coverage/
+.coverage
+htmlcov/

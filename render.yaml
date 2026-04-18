@@ -1,0 +1,61 @@
+# Render Blueprint — backend only.
+# Person A's slice deploys to Render; Person B deploys frontend to Vercel.
+#
+# Usage:
+#   1. Push this repo to GitHub.
+#   2. In Render, "New +" → "Blueprint" → pick the repo.
+#   3. Set the listed env vars (sync=false marks them as not-from-code; you
+#      paste the real values in the Render dashboard).
+
+services:
+  - type: web
+    name: gridgreen-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      python -m scripts.ingest_eia --days 14 || echo "ingest skipped (will run on first request)"
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /ping
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: prod
+      - key: LOG_LEVEL
+        value: INFO
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: DEFAULT_REGION
+        value: CISO
+      - key: GRID_CACHE_TTL_S
+        value: "300"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "60"
+      - key: REQUEST_TIMEOUT_S
+        value: "45"
+      - key: SQLITE_PATH
+        value: /opt/render/project/src/backend/data/gridgreen.sqlite
+      - key: CORS_ALLOW_ORIGINS
+        sync: false                  # set to your Vercel URL in dashboard
+      - key: EIA_API_KEY
+        sync: false
+      - key: SNOWFLAKE_ACCOUNT
+        sync: false
+      - key: SNOWFLAKE_USER
+        sync: false
+      - key: SNOWFLAKE_PASSWORD
+        sync: false
+      - key: SNOWFLAKE_WAREHOUSE
+        sync: false
+      - key: SNOWFLAKE_DATABASE
+        value: GRIDGREEN
+      - key: SNOWFLAKE_SCHEMA
+        value: PUBLIC
+      - key: NOAA_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: WANDB_API_KEY
+        sync: false

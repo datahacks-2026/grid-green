@@ -1,5 +1,7 @@
 Here's the revised plan where both people work **full-stack** (each owns a self-contained vertical slice), and the first 1–2 steps are fully independent so neither person is blocked waiting on the other.
 
+**Also read:** **`README.md` §0** (canonical doc index), **`README.md` §5** (API JSON contract), and **`a.md`** (Person A — §0 required ship, sponsors **Brev / AWS / GCP**, datasets, implementation details).
+
 ---
 
 # GridGreen — Revised Work Split

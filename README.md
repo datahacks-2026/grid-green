@@ -8,6 +8,19 @@
 
 ---
 
+## 0. Canonical build docs (read first)
+
+| Doc | Use it for |
+|-----|------------|
+| **`split.md`** | **Authoritative work split** — each person owns a **full-stack vertical slice**; first big merge **~hour 8–14**. Overrides older **§6 / §7** ownership lines when they disagree. |
+| **`a.md`** | **Person A** — §0 minimum ship + sponsor must-use (**Brev**, **AWS**, **GCP**), hackathon **dataset** notes (EIA, optional Scripps/NOAA), implementation details, MCP. |
+| **This file §5** | **API contract** — request/response JSON; still the source of truth for both people. |
+| **This file §7+** | **Timing** and checkpoints — still useful; **reassign tasks** per `split.md` when a line item conflicts (e.g. Monaco / `suggest_greener` / MCP wiring). |
+
+Hackathon **dataset eligibility**, optional **NOAA / heat map**, and **$200 AWS / $5 GCP (non-.edu) / Brev** requirements are documented in **`a.md`** (not duplicated here).
+
+---
+
 ## 1. The Time Reality
 
 Out of 36 calendar hours, each person realistically has:
@@ -156,51 +169,41 @@ Cursor (dev speed), Figma, Notion
 
 ---
 
-## 6. Clean Work Split (Zero Overlap)
+## 6. Work split
 
-### 👤 Person A — ML / Backend / Data
+**Authoritative roles and per-phase tasks:** **`split.md`**. **Person A execution + required ship + sponsors:** **`a.md`**.
 
-**Budget:** 18h build + 1.5h buffer = 19.5h total
+The table below matches **`split.md`**. The **hour-by-hour in §7** was written for an older **A = all backend / B = all frontend** model — use §7 for **timing**, but **reassign line items** when they conflict with **`split.md`**.
 
-**Owns:**
-1. EIA data pipeline → Snowflake
-2. Databricks Delta Live Tables pipeline
-3. Grid forecasting model (Prophet/XGBoost)
-4. Rules-based code-to-carbon estimator
-5. RAG index via Snowflake Cortex
-6. Gemini API integration
-7. FastAPI backend with 5 API + MCP tools
-8. Render deployment
-9. MCP config for Claude Desktop
+| Person | Slice | FastAPI routes | UI |
+|--------|--------|----------------|-----|
+| **A** — Grid intelligence *("When should I run?")* | Forecast + carbon estimate from code | `estimate_carbon`, `check_grid`, `find_clean_window` | Monaco, inline decorations, pre-run modal + 48h chart *(agree modal shell vs chart with B)* |
+| **B** — Model intelligence *("What should I run?")* | Greener models + session stats | `suggest_greener`, `scorecard` | Suggestion sidebar, stats card, `/mcp`, Gemini reasoning (incl. in modal per `split.md` Phase 5) |
 
-**Stack:** Python, FastAPI, Snowflake, Databricks, scikit-learn, XGBoost, Prophet, Gemini SDK
+**Stacks — A:** Python, FastAPI, Snowflake, Databricks, scikit-learn, XGBoost, Prophet, Hugging Face tooling as needed. **B:** TypeScript, Next.js, Tailwind, Monaco, Recharts, Framer Motion, Gemini SDK.
 
----
+**Phase 5 note (`split.md`):** Person **A** owns **RAG index + `suggest_greener` wiring** (Cortex); Person **B** owns **Gemini NL**, **`/mcp` page**, and **MCP server wiring** in Claude Desktop — differs from some §7 bullets; **follow `split.md`**.
 
-### 👤 Person B — Product / Frontend / Demo
+### Legacy reference — original “zero overlap” split
 
-**Budget:** 18h build + 1.5h buffer = 19.5h total
+<details>
+<summary>Older A = backend only / B = frontend only (click to expand)</summary>
 
-**Owns:**
-1. Next.js + Tailwind skeleton
-2. Monaco editor integration
-3. Inline hint rendering
-4. Pre-run modal with 48h chart
-5. RAG suggestion side panel
-6. Stats card
-7. "/mcp" config page
-8. Vercel deployment
-9. Architecture diagram (Figma)
-10. 3-min demo video
-11. Devpost copy + submission
+**Person A — ML / Backend / Data:** EIA → Snowflake, DLT, Prophet/XGBoost forecaster, rules estimator, RAG + Cortex, Gemini API, all five FastAPI routes + MCP, Render, MCP config for Claude.
 
-**Stack:** TypeScript, Next.js, Tailwind, Monaco, Recharts, Framer Motion
+**Person B — Product / Frontend:** Next.js, Monaco, inline hints, pre-run modal + chart, RAG sidebar, stats card, `/mcp`, Vercel, Figma, video, Devpost.
+
+Use this only if the team **explicitly reverts** to the old split; otherwise **`split.md`** wins.
+
+</details>
 
 ---
 
 ## 7. Hour-by-Hour Schedule
 
 > Saturday 9 AM start assumed. Adjust to actual kickoff.
+
+**Ownership:** Checkboxes below follow the **original** split. Where they disagree with **`split.md`** (e.g. who builds Monaco, `suggest_greener`, MCP wiring), use **`split.md`** and **`a.md`**.
 
 ### 🟢 Phase 1: Setup (Hours 0–2) — 2h each
 
