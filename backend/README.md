@@ -11,11 +11,15 @@ before Phase 5.
 ---
 
 ## Quick start
+# GridGreen Backend — Person B slice
+
+## Local run
 
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+<<<<<<< HEAD
 cp .env.example .env             # fill in EIA / Snowflake keys when you have them
 python -m scripts.ingest_eia     # works without keys (mock data)
 uvicorn app.main:app --reload --port 8000
@@ -72,3 +76,28 @@ backend/
   uses a seasonal-naive baseline so the API is real-shaped from day one.
 - Phase 5 swaps the small built-in model catalog in `carbon_estimator.py`
   for a Snowflake Cortex / RAG lookup over Hugging Face model cards.
+=======
+cp .env.example .env   # fill in GEMINI_API_KEY
+uvicorn app.main:app --reload --port 8000
+```
+
+Health check: `curl http://localhost:8000/ping` → `{"ok": true}`
+
+## Person B endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/suggest_greener` | Greener-model swap suggestions + Gemini reasoning |
+| GET  | `/api/scorecard?session_id=…` | Read cumulative session savings |
+| POST | `/api/scorecard/event` | Record a `suggestion_accepted` or `run_deferred` event |
+
+## MCP server
+
+```bash
+python -m app.mcp_server
+```
+
+Person B's tools (`suggest_greener_tool`, `get_scorecard`) are real.
+Person A's tools (`estimate_carbon`, `check_grid`, `find_clean_window`)
+are auto-stubbed until A pushes their routes.
+>>>>>>> f832910 (part b)

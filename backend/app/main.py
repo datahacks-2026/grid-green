@@ -78,3 +78,47 @@ def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRespons
 
 
 app = create_app()
+"""FastAPI entrypoint.
+
+Person B's routes live here today. Person A merges their estimate/grid
+routers via `app.include_router(...)` — no other change required.
+"""
+from __future__ import annotations
+
+import os
+
+from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.routes import scorecard, suggest
+
+load_dotenv()
+
+app = FastAPI(title="GridGreen API", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        o.strip()
+        for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+        if o.strip()
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/ping")
+def ping() -> dict[str, bool]:
+    return {"ok": True}
+
+
+app.include_router(suggest.router, prefix="/api")
+app.include_router(scorecard.router, prefix="/api")
+
+# When Person A is ready, they uncomment one line each:
+# from app.routes import estimate, grid
+# app.include_router(estimate.router, prefix="/api")
+# app.include_router(grid.router, prefix="/api")

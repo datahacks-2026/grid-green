@@ -21,6 +21,19 @@ const config: Config = {
         },
       },
       fontFamily: {
+  content: ["./src/**/*.{ts,tsx}"],
+  theme: {
+    extend: {
+      colors: {
+        ink: "#0b1220",
+        leaf: "#22c55e",
+        leafDeep: "#15803d",
+        coal: "#1f2937",
+        ash: "#94a3b8",
+        cardBg: "#0f172a",
+      },
+      fontFamily: {
+        sans: ["ui-sans-serif", "system-ui", "Inter", "sans-serif"],
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
     },

@@ -13,6 +13,9 @@ Person B layers on top of this shell with the suggestion sidebar, stats card,
 ---
 
 ## Quick start
+# GridGreen Frontend — Person B slice
+
+## Local run
 
 ```bash
 cd frontend
@@ -57,3 +60,27 @@ Reads (typed in `lib/api.ts`):
 - `GET  /api/find_clean_window?region=…&hours_needed=4` → modal chart + optimal time line.
 
 Stays in lockstep with [`../CONTRACT.md`](../CONTRACT.md).
+cp .env.local.example .env.local   # point NEXT_PUBLIC_API_BASE_URL at the backend
+npm run dev
+```
+
+Open http://localhost:3000 — paste a script with `from_pretrained(...)` and
+suggestion cards stream in from `/api/suggest_greener`.
+
+## Person B components (drop-in)
+
+| Component | Where Person A inserts it |
+|---|---|
+| `<SuggestionSidebar code={code} onApplySuggestion={...} />` | Right column of the main page. |
+| `<StatsCard refreshKey={n} />` | Top of the right column. |
+| `<GeminiReasoning suggestions={...} />` | Inside Person A's pre-run modal, below the 48h chart. |
+| `/mcp` page | Already routed — link from header (already wired). |
+
+Each component is fully self-contained: it manages its own loading / error
+state and reads `NEXT_PUBLIC_API_BASE_URL` from the env. No props from
+Person A's data layer are required.
+
+## Contract types
+
+`src/types/api.ts` mirrors `backend/app/schemas.py`. **Both files must change
+together** — this is the source of truth from README §5.
