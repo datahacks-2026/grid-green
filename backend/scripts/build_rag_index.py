@@ -14,6 +14,7 @@ table — requires `SNOWFLAKE_*` and a Cortex-enabled warehouse.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -88,26 +89,29 @@ def build_snowflake() -> None:
             """
         )
         cs.execute("TRUNCATE TABLE rag_hf_corpus")
-        rows = []
+        # VECTOR columns: server-side binding is not supported; binding a Python list
+        # fails (252001 with executemany, or FIXED type errors with execute). Pass a
+        # JSON array string and cast via PARSE_JSON.
+        insert_sql = """
+            INSERT INTO rag_hf_corpus (id, from_model, to_model, doc_text, embedding)
+            SELECT %s, %s, %s, %s, PARSE_JSON(%s)::VECTOR(FLOAT, 384)
+            """
+        uploaded = 0
         for entry, vec in zip(index._entries, index._st_matrix):  # noqa: SLF001
-            rows.append(
+            emb_json = json.dumps([float(x) for x in vec])
+            cs.execute(
+                insert_sql,
                 (
                     f"{entry.from_model}->{entry.to_model}",
                     entry.from_model,
                     entry.to_model,
                     entry.doc_text,
-                    list(map(float, vec)),
-                )
+                    emb_json,
+                ),
             )
-        cs.executemany(
-            """
-            INSERT INTO rag_hf_corpus (id, from_model, to_model, doc_text, embedding)
-            SELECT %s, %s, %s, %s, %s::VECTOR(FLOAT, 384)
-            """,
-            rows,
-        )
+            uploaded += 1
         ctx.commit()
-        logger.info("Uploaded %d corpus entries to Snowflake Cortex.", len(rows))
+        logger.info("Uploaded %d corpus entries to Snowflake Cortex.", uploaded)
     finally:
         ctx.close()
 

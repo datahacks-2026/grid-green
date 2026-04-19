@@ -97,6 +97,17 @@ Still **from `backend/`**:
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
+If you run `uvicorn` **from the repo root** instead, Python will not find the `app`
+package (`ModuleNotFoundError: No module named 'app'`). Either `cd backend` first,
+or from the **repository root** (venv activated):
+
+```bash
+chmod +x scripts/run-backend.sh   # once
+./scripts/run-backend.sh
+```
+
+(`PORT=8001 ./scripts/run-backend.sh` overrides the port.)
+
 Sanity URLs:
 
 - `http://127.0.0.1:8000/ping`

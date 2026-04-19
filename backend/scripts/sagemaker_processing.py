@@ -28,7 +28,7 @@ Run
 ---
     cd backend
     source ../.venv/bin/activate
-    python -m scripts.sagemaker_processing --instance-type ml.m5.large
+    python -m scripts.sagemaker_processing --instance-type ml.t3.medium
 """
 
 from __future__ import annotations
@@ -45,6 +45,15 @@ HERE = Path(__file__).resolve().parent
 BACKEND_ROOT = HERE.parent
 
 
+def _load_backend_dotenv() -> None:
+    """Load `backend/.env` so CLI runs match `uvicorn` / tests without manual `export`."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(BACKEND_ROOT / ".env", override=False)
+
+
 def _require(name: str) -> str:
     val = os.environ.get(name)
     if not val:
@@ -57,14 +66,15 @@ def _upload_bytes(s3_client, bucket: str, key: str, data: bytes) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _load_backend_dotenv()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logger = logging.getLogger("sagemaker_processing")
 
     p = argparse.ArgumentParser()
     p.add_argument(
         "--instance-type",
-        default=os.environ.get("SAGEMAKER_INSTANCE_TYPE", "ml.m5.large"),
-        help="SageMaker processing instance type (default ml.m5.large).",
+        default=os.environ.get("SAGEMAKER_INSTANCE_TYPE", "ml.t3.medium"),
+        help="SageMaker processing instance type (default ml.t3.medium).",
     )
     p.add_argument(
         "--wait",
@@ -113,16 +123,15 @@ def main(argv: list[str] | None = None) -> int:
         command=["python3"],
         instance_type=args.instance_type,
         instance_count=1,
-        py_version="py310",
         sagemaker_session=sm_session,
     )
 
     job_name = f"gridgreen-corpus-{run_id}".replace("_", "-")[:63]
     logger.info("Starting processing job %s", job_name)
 
+    entry_script = HERE / "sagemaker_processing_entry.py"
     processor.run(
-        code="sagemaker_processing_entry.py",
-        source_dir=str(HERE),
+        code=str(entry_script),
         inputs=[
             ProcessingInput(
                 source=f"s3://{bucket}/{s3_in}/",
@@ -135,7 +144,6 @@ def main(argv: list[str] | None = None) -> int:
                 destination=f"s3://{bucket}/{s3_out}/",
             )
         ],
-        arguments=[],
         job_name=job_name,
         wait=args.wait,
         logs=True,

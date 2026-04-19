@@ -72,7 +72,18 @@ def insert_eia_rows(rows: Sequence[Tuple[str, str, str, float]]) -> int:
         try:
             return _insert_snowflake(payload)
         except Exception as exc:  # noqa: BLE001 - degrade gracefully
-            logger.warning("Snowflake insert failed (%s); falling back to SQLite", exc)
+            msg = str(exc)
+            hint = ""
+            if "42501" in msg or "Insufficient privileges" in msg:
+                fq = f"{settings.snowflake_database}.{settings.snowflake_schema}.EIA_HOURLY"
+                role = settings.snowflake_role or "YOUR_ROLE"
+                sch = f"{settings.snowflake_database}.{settings.snowflake_schema}"
+                hint = (
+                    f" Snowflake: MERGE needs INSERT+UPDATE on {fq}. "
+                    f"As owner/admin: GRANT INSERT, UPDATE ON TABLE {fq} TO ROLE {role}; "
+                    f"if the table is missing: GRANT CREATE TABLE ON SCHEMA {sch} TO ROLE {role};"
+                )
+            logger.warning("Snowflake insert failed (%s); falling back to SQLite.%s", exc, hint)
 
     return _insert_sqlite(payload)
 
