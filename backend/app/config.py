@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import List
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     wandb_api_key: str | None = None
     wandb_project: str = "gridgreen"
 
+    # Databricks SQL warehouse (optional — set via .env only; never commit real values).
+    databricks_server_hostname: str | None = None
+    databricks_http_path: str | None = None
+    databricks_token: str | None = None
+    # Unity Catalog FQN for bronze Delta table (DLT + notebooks read this).
+    databricks_bronze_table: str = "gridgreen.raw.eia_raw"
+
     @property
     def cors_origins(self) -> List[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
@@ -57,7 +64,37 @@ class Settings(BaseSettings):
             and self.snowflake_password
         )
 
+    @property
+    def use_databricks_sql(self) -> bool:
+        return bool(
+            self.databricks_server_hostname
+            and self.databricks_http_path
+            and self.databricks_token
+        )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
+
+
+def bronze_table_fqn() -> str:
+    """Fully qualified bronze table name (cluster `DATABRICKS_BRONZE_TABLE` overrides .env)."""
+    env = os.environ.get("DATABRICKS_BRONZE_TABLE")
+    if env:
+        return env.strip()
+    return get_settings().databricks_bronze_table
+
+
+def databricks_sql_connect_kwargs() -> dict[str, str]:
+    """Kwargs compatible with `databricks.sql.connect` / `databricks-sql-connector`."""
+    s = get_settings()
+    if not s.use_databricks_sql:
+        raise RuntimeError(
+            "Set databricks_server_hostname, databricks_http_path, and databricks_token"
+        )
+    return {
+        "server_hostname": s.databricks_server_hostname or "",
+        "http_path": s.databricks_http_path or "",
+        "access_token": s.databricks_token or "",
+    }

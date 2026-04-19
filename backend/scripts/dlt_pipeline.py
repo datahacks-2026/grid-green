@@ -26,13 +26,23 @@ import os
 import sys
 from typing import Any
 
-# Allow `python scripts/dlt_pipeline.py` from backend/.
-HERE = os.path.dirname(os.path.abspath(__file__))
+# Allow `python scripts/dlt_pipeline.py` from backend/. Notebook cells have no __file__.
+_script = globals().get("__file__")
+HERE = os.path.dirname(os.path.abspath(_script)) if _script else os.getcwd()
 ROOT = os.path.dirname(HERE)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 logger = logging.getLogger("dlt_pipeline")
+
+
+def _bronze_table_fqn() -> str:
+    try:
+        from app.config import bronze_table_fqn
+
+        return bronze_table_fqn()
+    except Exception:
+        return os.environ.get("DATABRICKS_BRONZE_TABLE", "gridgreen.raw.eia_raw")
 
 
 try:  # pragma: no cover — exercised only in Databricks runtime
@@ -56,7 +66,7 @@ if IN_DATABRICKS:  # pragma: no cover
     )
     def eia_bronze() -> Any:
         # Replace `eia_raw` with whatever Auto Loader / volume path you wire.
-        return spark.readStream.format("delta").table("gridgreen.raw.eia_raw")  # type: ignore
+        return spark.readStream.format("delta").table(_bronze_table_fqn())  # type: ignore
 
     @dlt.table(name="eia_silver", comment="Deduped + typed.")
     @dlt.expect_or_drop("ts_present", "ts_utc IS NOT NULL")
@@ -153,5 +163,14 @@ if __name__ == "__main__":
     if IN_DATABRICKS:  # pragma: no cover
         # Databricks runs the @dlt.table functions itself; nothing to do here.
         print("Loaded as a DLT pipeline definition.")
+    elif os.environ.get("DATABRICKS_RUNTIME_VERSION"):
+        # Notebook / plain cluster: `dlt` is usually unavailable; `__name__` is still "__main__".
+        print(
+            "On Databricks: deploy this file as a Delta Live Tables pipeline (DLT UI / bundle). "
+            "run_local() is for laptop SQLite only."
+        )
+    elif "__file__" not in globals():
+        # Pasted into Jupyter / a cell — avoid run_local() (no repo on sys.path).
+        print("run_local() skipped (no __file__). From backend/: python -m scripts.dlt_pipeline")
     else:
         run_local()
