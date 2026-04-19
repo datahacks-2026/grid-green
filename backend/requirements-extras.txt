@@ -22,3 +22,8 @@ wandb==0.18.7
 # Keep out of the baseline requirements so local dev / CI stays lightweight.
 boto3>=1.35.0,<2
 sagemaker==2.257.1
+# Query UC / SQL warehouse from local machine (smoke test + future app reads).
+databricks-sql-connector>=3.4.0,<4
+
+# Upload export CSV to DBFS (scripts.upload_eia_export_to_databricks).
+databricks-sdk>=0.40,<1
