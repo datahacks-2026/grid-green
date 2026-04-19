@@ -149,6 +149,25 @@ export type AnalyzeRepoResponse = {
   aggregate_truncated: boolean;
 };
 
+export type WeatherContext = {
+  region: Region;
+  location_label: string;
+  temperature_f: number | null;
+  high_24h_f: number | null;
+  short_forecast: string | null;
+  fetched_at: string;
+};
+
+export type CampusHeatContext = {
+  source: "scripps_ucsd_mobile_weather";
+  n_points: number;
+  n_stations: number;
+  earliest: string | null;
+  latest: string | null;
+  mean_temperature_c: number | null;
+  mean_relative_humidity: number | null;
+};
+
 export type Diagnostics = {
   time: string;
   env: string;
@@ -171,6 +190,15 @@ export const api = {
     }),
 
   diagnostics: () => jsonFetch<Diagnostics>("/api/diagnostics"),
+
+  /** NOAA-backed regional weather narrative. May 502 if NOAA is flaky;
+   *  callers must treat failures as "no context", never fatal. */
+  weather: (region: Region) =>
+    jsonFetch<WeatherContext>(`/api/context/weather?region=${region}`),
+
+  /** Scripps-style heat-map aggregate (currently from a bundled sample CSV). */
+  campusHeat: () => jsonFetch<CampusHeatContext>("/api/context/campus_heat"),
+
 
   getScorecard: (sessionId: string) =>
     jsonFetch<Scorecard>(

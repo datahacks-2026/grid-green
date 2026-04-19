@@ -28,6 +28,9 @@ pnpm-debug.log*
 .pytest_cache/
 *.tsbuildinfo
 
+# Hackathon reference materials (not source code)
+*.pdf
+
 # Local data
 backend/data/*.sqlite
 backend/data/*.db

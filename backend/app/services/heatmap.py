@@ -6,10 +6,16 @@ exposes a tiny aggregate API. The point of this module is to satisfy the
 the aggregate is shown alongside the EIA grid intensity in the UI as
 *context*, never as the primary carbon signal.
 
-The CSV at `backend/data/sample_heatmap.csv` is a synthetic stand-in so
-the demo path works even if the real Scripps data hasn't been downloaded
-yet. Replace it with the real CSV (same column shape) and rerun
-`scripts/ingest_heatmap.py` — no code changes needed.
+The CSV at `backend/data/sample_heatmap.csv` is a **synthetic stand-in**
+so the demo path works even if the real Scripps data hasn't been
+downloaded yet. To use the real Scripps mobile-weather data, replace
+that file with one that has the same columns
+(`ts_utc, station_id, temperature_c, relative_humidity`) and restart
+the backend — `load_csv()` is content-agnostic, no code change needed.
+
+Until the real CSV is dropped in place, the project should NOT claim
+the Scripps $1,500 prize: the endpoint works, but the data is
+synthetic. README §3 + the Devpost submission must reflect that.
 """
 
 from __future__ import annotations

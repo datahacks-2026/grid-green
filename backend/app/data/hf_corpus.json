@@ -440,6 +440,171 @@
       "citation": "OpenAI, text-embedding-3 announcement, 2024.",
       "reasoning": "text-embedding-3-small reaches ~95% of large's MTEB score at ~5x lower cost — switch unless you've measured a quality gap on your eval.",
       "tags": ["embedding", "openai", "api"]
+    },
+    {
+      "from": "gpt2-xl",
+      "to": "gpt2-large",
+      "params_from_b": 1.5,
+      "params_to_b": 0.77,
+      "carbon_saved_pct": 50,
+      "performance_retained_pct": 95,
+      "citation": "Radford et al., Language Models are Unsupervised Multitask Learners, 2019.",
+      "reasoning": "gpt2-large keeps most of xl's perplexity on standard benchmarks at ~half the parameter count and ~half the inference compute.",
+      "tags": ["llm", "gpt2", "decoder"]
+    },
+    {
+      "from": "gpt2-large",
+      "to": "gpt2-medium",
+      "params_from_b": 0.77,
+      "params_to_b": 0.355,
+      "carbon_saved_pct": 55,
+      "performance_retained_pct": 92,
+      "citation": "Radford et al., 2019.",
+      "reasoning": "gpt2-medium is the standard quality/speed trade-off below large; fine-tunes faster on a single GPU.",
+      "tags": ["llm", "gpt2", "decoder"]
+    },
+    {
+      "from": "gpt2-medium",
+      "to": "gpt2",
+      "params_from_b": 0.355,
+      "params_to_b": 0.124,
+      "carbon_saved_pct": 65,
+      "performance_retained_pct": 88,
+      "citation": "Radford et al., 2019.",
+      "reasoning": "Base gpt2 is sufficient for short-prompt completions and demos; switch unless you measured perplexity gaps on your task.",
+      "tags": ["llm", "gpt2", "decoder"]
+    },
+    {
+      "from": "gpt2",
+      "to": "distilgpt2",
+      "params_from_b": 0.124,
+      "params_to_b": 0.082,
+      "carbon_saved_pct": 35,
+      "performance_retained_pct": 90,
+      "citation": "Sanh et al., DistilBERT/DistilGPT2, 2019.",
+      "reasoning": "DistilGPT2 retains ~90% of gpt2's quality at ~33% fewer parameters and faster inference.",
+      "tags": ["llm", "gpt2", "decoder", "distillation"]
+    },
+    {
+      "from": "t5-11b",
+      "to": "t5-3b",
+      "params_from_b": 11.0,
+      "params_to_b": 3.0,
+      "carbon_saved_pct": 70,
+      "performance_retained_pct": 93,
+      "citation": "Raffel et al., T5, 2020. https://arxiv.org/abs/1910.10683",
+      "reasoning": "T5-3B captures most of 11B's transfer-learning quality at ~3x lower training and inference cost.",
+      "tags": ["text2text", "t5"]
+    },
+    {
+      "from": "t5-3b",
+      "to": "t5-large",
+      "params_from_b": 3.0,
+      "params_to_b": 0.77,
+      "carbon_saved_pct": 70,
+      "performance_retained_pct": 92,
+      "citation": "Raffel et al., 2020.",
+      "reasoning": "t5-large is the standard mid-size T5 checkpoint; it fits on a single 24GB GPU and trains 4x faster than t5-3b.",
+      "tags": ["text2text", "t5"]
+    },
+    {
+      "from": "t5-large",
+      "to": "t5-base",
+      "params_from_b": 0.77,
+      "params_to_b": 0.22,
+      "carbon_saved_pct": 65,
+      "performance_retained_pct": 90,
+      "citation": "Raffel et al., 2020.",
+      "reasoning": "t5-base is widely used as the default for T5 fine-tuning; only step up to large if you measured a quality gap.",
+      "tags": ["text2text", "t5"]
+    },
+    {
+      "from": "t5-base",
+      "to": "t5-small",
+      "params_from_b": 0.22,
+      "params_to_b": 0.06,
+      "carbon_saved_pct": 70,
+      "performance_retained_pct": 85,
+      "citation": "Raffel et al., 2020.",
+      "reasoning": "t5-small is appropriate for short summarisation and structured generation demos and trains in minutes on a single GPU.",
+      "tags": ["text2text", "t5"]
+    },
+    {
+      "from": "albert-large-v2",
+      "to": "albert-base-v2",
+      "params_from_b": 0.018,
+      "params_to_b": 0.012,
+      "carbon_saved_pct": 30,
+      "performance_retained_pct": 96,
+      "citation": "Lan et al., ALBERT, 2019.",
+      "reasoning": "ALBERT shares parameters across layers; the base variant gives nearly identical GLUE numbers as large at lower compute.",
+      "tags": ["encoder", "bert"]
+    },
+    {
+      "from": "xlnet-large-cased",
+      "to": "xlnet-base-cased",
+      "params_from_b": 0.34,
+      "params_to_b": 0.11,
+      "carbon_saved_pct": 60,
+      "performance_retained_pct": 93,
+      "citation": "Yang et al., XLNet, 2019.",
+      "reasoning": "xlnet-base is a strong baseline; only use the large variant if your eval shows a measurable gap on long-range tasks.",
+      "tags": ["encoder", "xlnet"]
+    },
+    {
+      "from": "distilbert-base-uncased",
+      "to": "google/mobilebert-uncased",
+      "params_from_b": 0.067,
+      "params_to_b": 0.025,
+      "carbon_saved_pct": 50,
+      "performance_retained_pct": 92,
+      "citation": "Sun et al., MobileBERT, 2020.",
+      "reasoning": "MobileBERT keeps most of DistilBERT's GLUE quality at ~3x lower latency and is designed for on-device inference.",
+      "tags": ["encoder", "bert", "edge"]
+    },
+    {
+      "from": "meta-llama/Llama-3.1-70B",
+      "to": "meta-llama/Llama-3.1-8B",
+      "params_from_b": 70.0,
+      "params_to_b": 8.0,
+      "carbon_saved_pct": 88,
+      "performance_retained_pct": 87,
+      "citation": "AI@Meta, Llama 3.1 release, 2024.",
+      "reasoning": "Llama-3.1-8B is competitive on most chat/RAG tasks at <12% of the inference cost of the 70B variant.",
+      "tags": ["llm", "decoder", "llama"]
+    },
+    {
+      "from": "meta-llama/Llama-3.2-3B",
+      "to": "meta-llama/Llama-3.2-1B",
+      "params_from_b": 3.0,
+      "params_to_b": 1.0,
+      "carbon_saved_pct": 60,
+      "performance_retained_pct": 90,
+      "citation": "AI@Meta, Llama 3.2 release, 2024.",
+      "reasoning": "The 1B variant is intended for on-device and edge use; switch when long-context reasoning isn't required.",
+      "tags": ["llm", "decoder", "llama", "edge"]
+    },
+    {
+      "from": "Qwen/Qwen2.5-72B-Instruct",
+      "to": "Qwen/Qwen2.5-7B-Instruct",
+      "params_from_b": 72.0,
+      "params_to_b": 7.0,
+      "carbon_saved_pct": 88,
+      "performance_retained_pct": 86,
+      "citation": "Alibaba, Qwen2.5 release, 2024.",
+      "reasoning": "Qwen2.5-7B-Instruct retains most of the 72B chat quality at ~10% of the inference compute.",
+      "tags": ["llm", "decoder", "qwen"]
+    },
+    {
+      "from": "microsoft/phi-3.5-mini-instruct",
+      "to": "microsoft/Phi-3-mini-4k-instruct",
+      "params_from_b": 3.8,
+      "params_to_b": 3.8,
+      "carbon_saved_pct": 5,
+      "performance_retained_pct": 99,
+      "citation": "Microsoft, Phi-3.5 release, 2024.",
+      "reasoning": "If your prompts fit in 4k tokens, the original Phi-3 mini-4k is a slightly cheaper drop-in replacement for phi-3.5-mini.",
+      "tags": ["llm", "decoder", "phi"]
     }
   ]
 }

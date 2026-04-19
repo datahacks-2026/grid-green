@@ -68,9 +68,15 @@ def insert_eia_rows(rows: Sequence[Tuple[str, str, str, float]]) -> int:
     now = datetime.now(timezone.utc).isoformat()
     payload = [(ts, region, metric, float(value), now) for ts, region, metric, value in rows]
 
+    # Always write SQLite so `fetch_recent` (read path used by the forecaster
+    # and HTTP routes) sees ingested rows immediately. When Snowflake is
+    # configured, we *also* write to Snowflake so it remains the canonical
+    # warehouse for sponsor/judge evidence (`SELECT ... FROM eia_hourly`).
+    n = _insert_sqlite(payload)
+
     if settings.use_snowflake:
         try:
-            return _insert_snowflake(payload)
+            _insert_snowflake(payload)
         except Exception as exc:  # noqa: BLE001 - degrade gracefully
             msg = str(exc)
             hint = ""
@@ -83,9 +89,11 @@ def insert_eia_rows(rows: Sequence[Tuple[str, str, str, float]]) -> int:
                     f"As owner/admin: GRANT INSERT, UPDATE ON TABLE {fq} TO ROLE {role}; "
                     f"if the table is missing: GRANT CREATE TABLE ON SCHEMA {sch} TO ROLE {role};"
                 )
-            logger.warning("Snowflake insert failed (%s); falling back to SQLite.%s", exc, hint)
+            logger.warning(
+                "Snowflake mirror failed (%s); SQLite write succeeded.%s", exc, hint
+            )
 
-    return _insert_sqlite(payload)
+    return n
 
 
 def _insert_sqlite(payload: List[Tuple[str, str, str, float, str]]) -> int:

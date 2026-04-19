@@ -3,13 +3,13 @@
 Exposes the same handlers that back the FastAPI HTTP routes as MCP tools
 so Claude Desktop (or any MCP client) can call them locally over stdio.
 
-Tools exposed (Person A's slice):
+Tools exposed:
 
 - `estimate_carbon`     — POST /api/estimate_carbon
 - `check_grid`          — GET  /api/check_grid
 - `find_clean_window`   — GET  /api/find_clean_window
-- `suggest_greener`     — POST /api/suggest_greener  (RAG path; Person B
-                          can wrap with Gemini NL on the client side)
+- `suggest_greener`     — POST /api/suggest_greener (RAG-backed)
+- `get_scorecard`       — GET  /api/scorecard (cumulative session savings)
 
 Run as a subprocess (Claude Desktop will spawn this for you):
 
@@ -50,6 +50,7 @@ from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 from app.services import carbon_estimator, forecaster, rag  # noqa: E402
 from app.services.regions import is_supported  # noqa: E402
+from app.services.session_scorecard import get as scorecard_get  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -157,6 +158,23 @@ def suggest_greener(code: str) -> Dict[str, Any]:
             }
             for s in suggestions
         ]
+    }
+
+
+@mcp.tool()
+def get_scorecard(session_id: str) -> Dict[str, Any]:
+    """Cumulative carbon savings for a session (mirrors GET /api/scorecard).
+
+    Returns total grams of CO2 saved, count of runs deferred to a cleaner
+    window, and count of greener-model suggestions accepted.
+    """
+    if not session_id:
+        return {"error": "session_id is required"}
+    sc = scorecard_get(session_id)
+    return {
+        "co2_saved_grams": sc.co2_saved_grams,
+        "runs_deferred": sc.runs_deferred,
+        "suggestions_accepted": sc.suggestions_accepted,
     }
 
 

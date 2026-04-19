@@ -21,6 +21,53 @@ Hackathon **dataset eligibility**, optional **NOAA / heat map**, and **$200 AWS 
 
 ---
 
+## DataHacks 2026 compliance (judge cheat-sheet)
+
+- **Theme — Environment, Climate, & Energy Sciences:** every endpoint
+  serves a carbon-aware-compute workflow; the user-facing pitch is
+  literally "every `model.fit()` is a climate decision."
+- **Required dataset (ML/AI + Cloud tracks):** **EIA — US Energy
+  Information Administration** is on the official Non-Scripps Energy
+  list. Wired end-to-end via `backend/app/services/eia_client.py`
+  (ingest) → `storage.insert_eia_rows` (SQLite + Snowflake mirror) →
+  `forecaster.find_clean_window` / `check_grid` (HTTP + MCP tools).
+- **Optional Scripps dataset (status: code-ready, data pending):**
+  `GET /api/context/campus_heat`
+  (`backend/app/routes/context.py`) ingests
+  `backend/data/sample_heatmap.csv` and exposes a small aggregate
+  surfaced inside the pre-run modal next to the 48h grid chart. The
+  bundled CSV is **synthetic** so the demo path works without
+  credentials; **drop the real Scripps mobile-weather CSV in place
+  (same columns) before claiming the Scripps $1,500 prize.**
+- **Tracks targeted (max 2):** AI/ML + Cloud.
+- **Sponsor integrations shipped (re-runnable scripts):**
+  - **AWS** — `python -m scripts.sagemaker_processing` launches a
+    SageMaker Processing Job on `ml.t3.medium`. *Capture the job
+    ARN/console screenshot for Devpost.*
+  - **Snowflake** — `python -m scripts.build_rag_index --target
+    snowflake` populates `RAG_HF_CORPUS` with `VECTOR(FLOAT, 384)` via
+    `PARSE_JSON`; EIA is mirrored to `EIA_HOURLY` on every ingest. The
+    runtime RAG path uses `VECTOR_COSINE_SIMILARITY` when
+    `GRIDGREEN_RAG_BACKEND=auto|snowflake` and SBERT is loaded.
+  - **NVIDIA Brev / W&B** — `python -m scripts.brev_embed` runs the
+    embedding workload on a Brev GPU and optionally logs to W&B when
+    `WANDB_API_KEY` is set. *Sponsor proof requires actually executing
+    this on a Brev instance and capturing the run.*
+  - **Databricks** — `python -m scripts.dlt_pipeline` is dual-mode: it
+    registers `@dlt.table` stages inside Databricks and falls back to a
+    local pandas+SQLite runner so the same script demos offline. *DLT
+    prize requires an actual pipeline run inside a Databricks
+    workspace; the local fallback alone is not sponsor evidence.*
+  - **Google / Gemini** — `app/services/gemini_service.py` polishes
+    `suggest_greener` reasoning when `GEMINI_API_KEY` is set; the
+    polished paragraph is rendered inside the pre-run modal via
+    `GeminiReasoning`.
+  - **MCP / Claude Desktop** — `backend/mcp_server.py` exposes the five
+    contract tools plus `get_scorecard`; copy-paste config at `/mcp` in
+    the frontend.
+
+---
+
 ## 1. The Time Reality
 
 Out of 36 calendar hours, each person realistically has:
@@ -53,7 +100,7 @@ GridGreen is a carbon-aware copilot for ML engineers. It analyzes any ML trainin
 | AI/ML Track (main) | Track prize | Custom estimator + forecaster + RAG + MCP agent |
 | Cloud Track (main) | Track prize | Streaming pipeline + multi-service architecture |
 | Best Use of NVIDIA Brev.dev | $500 | Real GPU workload for embeddings + training |
-| Best Use of Databricks | $1000 | Delta Live Tables + MLflow |
+| Best Use of Databricks | $1000 | Delta Live Tables EIA pipeline (`backend/scripts/dlt_pipeline.py`) |
 | Best Use of Snowflake API | Raspberry Pi | Cortex vector search + hybrid analytics |
 | Most Innovative Build with AI (Google) | $1000 | Gemini powers NL reasoning |
 | Best Use of Gemini API | Swag | Free from Google integration |
@@ -129,8 +176,20 @@ Cursor (dev speed), Figma, Notion
 
 ### POST /api/suggest_greener
 ```json
-// Request
-{ "code": "string" }
+// Request — only `code` is required. Other fields (typically supplied
+// by the UI right after `estimate_carbon` + `find_clean_window`) let the
+// service rank high-impact lines first and surface grid context inside
+// each suggestion's `reasoning`. Full schema in CONTRACT.md §POST /api/suggest_greener.
+{
+  "code": "string",
+  "region": "CISO",
+  "co2_grams_now": 1840,
+  "co2_grams_optimal": 340,
+  "current_gco2_kwh": 450,
+  "optimal_window_start": "2026-04-20T03:00:00Z",
+  "co2_savings_pct_window": 62,
+  "impact_focus_lines": [12, 44]
+}
 
 // Response
 {
@@ -170,6 +229,13 @@ Cursor (dev speed), Figma, Notion
 ---
 
 ## 6. Work split
+
+> **Status note:** the GridGreen codebase as committed was built end-to-end
+> by a single contributor. §6 + §7 below — and `split.md` / `a.md` more
+> broadly — are the **original two-person planning artifacts** kept in the
+> repo for context (and because the API contract in §5 was locked against
+> them). Do not read them as a description of who actually wrote which
+> file; read them as the design bible the implementation aimed at.
 
 **Authoritative roles and per-phase tasks:** **`split.md`**. **Person A execution + required ship + sponsors:** **`a.md`**.
 

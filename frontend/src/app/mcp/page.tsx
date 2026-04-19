@@ -6,10 +6,12 @@ const CONFIG = {
   mcpServers: {
     gridgreen: {
       command: "python",
-      args: ["-m", "app.mcp_server"],
+      args: ["/absolute/path/to/gridgreen/backend/mcp_server.py"],
       cwd: "/absolute/path/to/gridgreen/backend",
       env: {
+        EIA_API_KEY: "<your_eia_key>",
         GEMINI_API_KEY: "<your_gemini_key>",
+        SQLITE_PATH: "/absolute/path/to/gridgreen/backend/data/gridgreen.sqlite",
       },
     },
   },

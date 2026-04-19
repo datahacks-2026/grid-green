@@ -8,6 +8,8 @@ import RunAnalysisModal from "@/components/RunAnalysisModal";
 import { StatsCard } from "@/components/StatsCard";
 import { SuggestionSidebar } from "@/components/SuggestionSidebar";
 import {
+  api,
+  type CampusHeatContext,
   checkGrid,
   type CheckGridResponse,
   type DetectedPattern,
@@ -17,6 +19,7 @@ import {
   type FindCleanWindowResponse,
   formatRegionLabel,
   type Region,
+  type WeatherContext,
 } from "@/lib/api";
 import { SAMPLE_CODE } from "@/lib/sample";
 import type { CarbonAnalysisContext } from "@/components/SuggestionSidebar";
@@ -35,6 +38,11 @@ export default function Home() {
   const [patterns, setPatterns] = useState<DetectedPattern[]>([]);
   const [estimate, setEstimate] = useState<EstimateCarbonResponse | null>(null);
   const [cleanWindow, setCleanWindow] = useState<FindCleanWindowResponse | null>(null);
+  /** Top RAG suggestion shown in the pre-run modal (Gemini-polished when configured). */
+  const [modalSuggestions, setModalSuggestions] = useState<Suggestion[]>([]);
+  /** Optional NOAA + Scripps context surfaced below the 48h chart. Both are best-effort. */
+  const [weather, setWeather] = useState<WeatherContext | null>(null);
+  const [campusHeat, setCampusHeat] = useState<CampusHeatContext | null>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +60,9 @@ export default function Home() {
     setEstimate(null);
     setCleanWindow(null);
     setPatterns([]);
+    setModalSuggestions([]);
+    setWeather(null);
+    setCampusHeat(null);
     setError(null);
     if (mode === "code") {
       setRepoCarbonCode(null);
@@ -66,6 +77,9 @@ export default function Home() {
     setError(null);
     setEstimate(null);
     setCleanWindow(null);
+    setModalSuggestions([]);
+    setWeather(null);
+    setCampusHeat(null);
     if (!analysisPayload.trim()) {
       setError(
         mode === "repo"
@@ -76,6 +90,7 @@ export default function Home() {
       return;
     }
     try {
+      // Phase 1 — primary numbers we can't render the modal without.
       const [est, win] = await Promise.all([
         estimateCarbon(analysisPayload, region),
         findCleanWindow(region, 4),
@@ -83,6 +98,30 @@ export default function Home() {
       setEstimate(est);
       setCleanWindow(win);
       setPatterns(est.detected_patterns);
+
+      // Phase 2 — optional enrichments (RAG + NOAA + Scripps). Each is
+      // best-effort: a NOAA 502 or empty corpus must not break the chart.
+      const [sugRes, wxRes, heatRes] = await Promise.allSettled([
+        api.suggestGreener({
+          code: analysisPayload,
+          region,
+          co2_grams_now: est.co2_grams_now,
+          co2_grams_optimal: est.co2_grams_optimal,
+          current_gco2_kwh: win.current_gco2_kwh,
+          optimal_window_start: win.optimal_start,
+          co2_savings_pct_window: win.co2_savings_pct,
+          impact_focus_lines: est.detected_patterns
+            .filter((p) => p.impact === "high")
+            .map((p) => p.line),
+        }),
+        api.weather(region),
+        api.campusHeat(),
+      ]);
+      if (sugRes.status === "fulfilled") {
+        setModalSuggestions(sugRes.value.suggestions ?? []);
+      }
+      if (wxRes.status === "fulfilled") setWeather(wxRes.value);
+      if (heatRes.status === "fulfilled") setCampusHeat(heatRes.value);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       setError(msg);
@@ -242,6 +281,9 @@ export default function Home() {
         error={error}
         estimate={estimate}
         cleanWindow={cleanWindow}
+        suggestions={modalSuggestions}
+        weather={weather}
+        campusHeat={campusHeat}
       />
     </main>
   );

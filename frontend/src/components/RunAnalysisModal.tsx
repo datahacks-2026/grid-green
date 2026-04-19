@@ -13,10 +13,16 @@ import {
 
 import {
   formatRegionLabel,
+  type CampusHeatContext,
   type EstimateCarbonResponse,
   type FindCleanWindowResponse,
   type Region,
+  type WeatherContext,
 } from "@/lib/api";
+import type { Suggestion } from "@/types/api";
+
+import { ContextStrip } from "./ContextStrip";
+import { GeminiReasoning } from "./GeminiReasoning";
 
 type Props = {
   open: boolean;
@@ -26,6 +32,12 @@ type Props = {
   error?: string | null;
   estimate?: EstimateCarbonResponse | null;
   cleanWindow?: FindCleanWindowResponse | null;
+  /** Top RAG suggestion (optional) — shown below the chart with NL reasoning. */
+  suggestions?: Suggestion[];
+  /** Optional NOAA narrative for the selected region. Hidden if upstream is flaky. */
+  weather?: WeatherContext | null;
+  /** Optional Scripps heat-map aggregate. Hidden if CSV is missing. */
+  campusHeat?: CampusHeatContext | null;
 };
 
 function fmtTime(iso: string): string {
@@ -51,6 +63,9 @@ export default function RunAnalysisModal({
   error,
   estimate,
   cleanWindow,
+  suggestions = [],
+  weather = null,
+  campusHeat = null,
 }: Props) {
   if (!open) return null;
 
@@ -171,6 +186,10 @@ export default function RunAnalysisModal({
                   </ResponsiveContainer>
                 </div>
               </div>
+
+              <ContextStrip weather={weather} campusHeat={campusHeat} />
+
+              <GeminiReasoning suggestions={suggestions} />
 
               {estimate.detected_patterns.length > 0 && (
                 <div>

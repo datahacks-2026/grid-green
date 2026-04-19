@@ -299,7 +299,13 @@ Prefer **stub / mock** over blocking: local SQLite if Snowflake fails, CPU if Br
 
 ### 8.13 Current repo state
 
-- Until `backend/` exists: **nothing is ingested in code** — implement Phase 2 to change that.
+- `backend/` is implemented: FastAPI app with all five contract routes
+  (`estimate_carbon`, `suggest_greener`, `check_grid`,
+  `find_clean_window`, `scorecard`), the optional `/api/context/*`
+  endpoints, repo-mode scanner, MCP server (`backend/mcp_server.py`),
+  EIA → SQLite ingest with optional Snowflake mirror, and a 41-test
+  pytest suite. `frontend/` runs end-to-end against it locally.
+  Deployment to Render + Vercel is the remaining work.
 
 ### 8.14 Near–real-time vs “static dataset”
 

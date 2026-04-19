@@ -7,8 +7,11 @@ once on a Brev instance to:
    on a GPU (this is the NVIDIA challenge proof).
 2. Log the run + a small loss / throughput chart to **Weights & Biases**
    (the W&B challenge proof — set `WANDB_API_KEY`).
-3. Emit a JSON file (`backend/data/rag_embeddings.json`) that the runtime
-   RAG service will load instead of recomputing on first request.
+3. Emit a JSON file (`backend/data/rag_embeddings.json`) for inspection
+   and as artefact evidence of the GPU run. (The FastAPI runtime
+   currently re-encodes with the same model on first request — this
+   file is sponsor evidence + a stepping stone to a precomputed loader,
+   not a runtime dependency.)
 
 Local CPU also works — the GPU path is `device='cuda'` if available, and
 the script prints whether it ran on GPU so you can screenshot it.

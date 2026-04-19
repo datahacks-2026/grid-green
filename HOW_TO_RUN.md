@@ -53,6 +53,17 @@ RAG embedding controls (optional):
   models at runtime (forces TF‑IDF only — good for CI, locked-down networks,
   and fast cold starts).
 - **`GRIDGREEN_ST_MODEL=...`**: override the MiniLM id when ST is enabled.
+- **`GRIDGREEN_RAG_BACKEND=auto|snowflake|local`** (default `auto`):
+  - `auto` — when `SNOWFLAKE_*` is configured **and** SBERT is loaded,
+    rank candidates with Snowflake Cortex
+    `VECTOR_COSINE_SIMILARITY(RAG_HF_CORPUS.embedding, query)`; otherwise
+    fall back to local SBERT, then TF‑IDF.
+  - `snowflake` — force Cortex (warns + falls back if it fails).
+  - `local` — never call Snowflake, even if env is set.
+
+  Run `python -m scripts.build_rag_index --target snowflake` once before
+  enabling Cortex so `RAG_HF_CORPUS` is populated with `VECTOR(FLOAT, 384)`
+  embeddings.
 
 ### Configure environment variables
 
@@ -238,11 +249,22 @@ python -m scripts.build_rag_index --target snowflake
 
 ## 6) Deploy (public URLs) — high level
 
-- **Backend (Render)**: see `render.yaml` + `backend/Procfile`
+- **Backend (Render)**: see `render.yaml` (Blueprint — start command,
+  health check, and env vars are all declared there; no separate
+  `Procfile` is needed)
   - Set `CORS_ALLOW_ORIGINS` to your Vercel origin
   - Set `EIA_API_KEY` (recommended in prod)
   - Set `SQLITE_PATH` to a persistent path on the host (Render example path is documented in `render.yaml`)
-- **Frontend (Vercel)**: set `BACKEND_URL` to the public Render API base URL
+- **Frontend (Vercel)**: import the `frontend/` directory in Vercel
+  (Next.js is auto-detected — no `vercel.json` needed). **`.env.local`
+  is gitignored and is NOT deployed by Vercel** — set the same vars in
+  Vercel project settings → Environment Variables for **Production +
+  Preview**:
+  - `BACKEND_URL` → public Render API base URL (used by server
+    components / API routes proxying the backend)
+  - `NEXT_PUBLIC_API_BASE_URL` → same URL (exposed to the browser)
+  See `frontend/.env.example` and `frontend/.env.local.example` for the
+  shape of the values.
 
 ---
 
@@ -282,9 +304,11 @@ python -m scripts.build_rag_index --target snowflake
 - Per-IP rate limiting + request timeout middleware
 - Short TTL caching for forecast work (does not fake freshness timestamps)
 
-### Still stub / other owner
+### Scorecard
 
-- **`GET /api/scorecard`**: contract-valid stub (**Person B** owns the real aggregation)
+- **`GET /api/scorecard`** + **`POST /api/scorecard/event`**: real in-memory
+  aggregation backed by `app/services/session_scorecard.py`. Mirrored as the
+  `get_scorecard` MCP tool in `backend/mcp_server.py`.
 
 ### Frontend (Person A slice)
 
@@ -296,7 +320,14 @@ python -m scripts.build_rag_index --target snowflake
     zipball, runs greener-model detection across `.py` / `.ipynb` files, and
     renders per-file suggestions.
 - Region selector
-- "Run analysis" modal calling estimate + grid forecast endpoints and charting the 48h series
+- "Run analysis" modal calling estimate + grid forecast endpoints and
+  charting the 48h series. The modal also fires three best-effort
+  enrichment calls in parallel (`/api/suggest_greener`,
+  `/api/context/weather`, `/api/context/campus_heat`) and renders, when
+  available, a NOAA / Scripps context strip plus the top RAG suggestion
+  with its Gemini-polished reasoning paragraph below the chart. Any of
+  the three may fail (NOAA 502, empty corpus, missing Scripps CSV)
+  without blocking the chart.
 - **`/mcp` page** (`frontend/src/app/mcp/page.tsx`): copy/paste helper for Claude Desktop wiring
 
 ### Tooling / integration files

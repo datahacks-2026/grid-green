@@ -1,17 +1,25 @@
 """RAG over the curated HF model corpus (Phase 5 + a.md §8.8).
 
-Embedding tiers (auto-selected at runtime):
+Runtime embedding tiers (auto-selected on first request):
 
-1. **Snowflake Cortex** — when `SNOWFLAKE_*` env vars are set and the
-   `snowflake-connector-python` package is installed, we read precomputed
-   `VECTOR` rows from a Cortex-managed table (built by
-   `scripts/build_rag_index.py --target snowflake`).
-2. **sentence-transformers** — when the package is importable, we encode
-   the corpus once on first use with `all-MiniLM-L6-v2` (the same model
-   we run on Brev for the sponsor evidence run).
-3. **TF-IDF fallback** — pure scikit-learn cosine similarity over the
+1. **sentence-transformers** — when the package is importable (and not
+   disabled by `GRIDGREEN_DISABLE_ST=1`), we encode the corpus once with
+   `all-MiniLM-L6-v2` (the same model we run on Brev for the sponsor
+   evidence run).
+2. **TF-IDF fallback** — pure scikit-learn cosine similarity over the
    model id + tags + reasoning text. Always available; the demo never
-   breaks when the heavier paths are missing.
+   breaks when the heavier path is missing.
+
+A separate **Snowflake Cortex** path is exercised offline by
+`scripts/build_rag_index.py --target snowflake`, which uploads the
+corpus + `VECTOR(FLOAT, 384)` embeddings into `RAG_HF_CORPUS`.
+
+When `GRIDGREEN_RAG_BACKEND=snowflake` is set (and the SBERT model is
+loaded so we can encode queries with the same dimension), the runtime
+ranker calls Snowflake Cortex with `VECTOR_COSINE_SIMILARITY` against
+the uploaded `RAG_HF_CORPUS.embedding` column instead of doing the
+cosine product locally. The default (`auto`) prefers local for latency
+but falls through to Snowflake if the local SBERT path is unavailable.
 
 The query is the union of model ids extracted from the user's code plus
 their associated tag context. The result set is filtered to entries whose
@@ -21,6 +29,7 @@ small model for a bigger one) and deduped by `(from, to)`.
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import os
@@ -28,7 +37,7 @@ import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -225,13 +234,7 @@ class RagIndex:
         return suggestions
 
     def _rank(self, query: str) -> List[Tuple[CorpusEntry, float]]:
-        if self._st_model is not None and self._st_matrix is not None:
-            qv = self._st_model.encode([query], normalize_embeddings=True)
-            sims = (self._st_matrix @ qv.T).flatten()
-        else:
-            assert self._vectorizer is not None and self._matrix is not None
-            qv = self._vectorizer.transform([query])
-            sims = cosine_similarity(self._matrix, qv).flatten()
+        sims = self._similarity_scores(query)
 
         # Strong boost for exact substring match against `from` model id.
         boosted = []
@@ -245,6 +248,114 @@ class RagIndex:
         boosted.sort(key=lambda t: t[1], reverse=True)
         return boosted
 
+    def _similarity_scores(self, query: str):
+        """Per-entry similarity in `self._entries` order.
+
+        Backend selection (env ``GRIDGREEN_RAG_BACKEND``):
+
+        - ``snowflake`` — force Cortex ``VECTOR_COSINE_SIMILARITY`` against
+          ``RAG_HF_CORPUS``; raises a warning + falls back if it fails.
+        - ``local`` — never call Snowflake; use in-process SBERT then TF-IDF.
+        - ``auto`` (default) — try Snowflake when ``SNOWFLAKE_*`` is
+          configured, else local SBERT, else TF-IDF.
+        """
+        backend = os.environ.get("GRIDGREEN_RAG_BACKEND", "auto").strip().lower()
+
+        if backend in {"snowflake", "auto"}:
+            sims = self._similarity_snowflake(query)
+            if sims is not None:
+                return sims
+            if backend == "snowflake":
+                logger.warning(
+                    "GRIDGREEN_RAG_BACKEND=snowflake requested but Cortex "
+                    "scoring unavailable; falling back to local."
+                )
+
+        if self._st_model is not None and self._st_matrix is not None:
+            qv = self._st_model.encode([query], normalize_embeddings=True)
+            return (self._st_matrix @ qv.T).flatten()
+
+        assert self._vectorizer is not None and self._matrix is not None
+        qv = self._vectorizer.transform([query])
+        return cosine_similarity(self._matrix, qv).flatten()
+
+    def _similarity_snowflake(self, query: str):
+        """Score the query against `RAG_HF_CORPUS.embedding` via Cortex.
+
+        Returns a numpy-like array aligned with ``self._entries``, or
+        ``None`` if Snowflake is not configured / connection fails / the
+        local SBERT encoder isn't available (we need it to embed the
+        query in the same 384-d space as the uploaded vectors).
+        """
+        if self._st_model is None:
+            return None
+        try:
+            from app.config import get_settings  # local import to keep cold start fast
+        except Exception:  # noqa: BLE001
+            return None
+        settings = get_settings()
+        if not settings.use_snowflake:
+            return None
+        try:
+            import snowflake.connector  # type: ignore
+        except Exception:  # noqa: BLE001
+            return None
+
+        try:
+            qv = self._st_model.encode([query], normalize_embeddings=True)[0]
+            qv_json = json.dumps([float(x) for x in qv])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Snowflake RAG: query encode failed (%s)", exc)
+            return None
+
+        try:
+            ctx = snowflake.connector.connect(
+                account=settings.snowflake_account,
+                user=settings.snowflake_user,
+                password=settings.snowflake_password,
+                warehouse=settings.snowflake_warehouse,
+                database=settings.snowflake_database,
+                schema=settings.snowflake_schema,
+                role=settings.snowflake_role,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Snowflake RAG: connect failed (%s)", exc)
+            return None
+
+        try:
+            cs = ctx.cursor()
+            cs.execute(
+                """
+                SELECT id,
+                       VECTOR_COSINE_SIMILARITY(
+                         embedding,
+                         PARSE_JSON(%s)::VECTOR(FLOAT, 384)
+                       ) AS score
+                FROM rag_hf_corpus
+                """,
+                (qv_json,),
+            )
+            score_by_id = {row[0]: float(row[1] or 0.0) for row in cs.fetchall()}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Snowflake RAG: query failed (%s)", exc)
+            return None
+        finally:
+            try:
+                ctx.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+        if not score_by_id:
+            return None
+
+        import numpy as np  # already a transitive dep via sklearn
+
+        sims = np.zeros(len(self._entries), dtype=float)
+        for i, e in enumerate(self._entries):
+            sims[i] = score_by_id.get(f"{e.from_model}->{e.to_model}", 0.0)
+        logger.debug("Snowflake Cortex ranked %d entries", len(score_by_id))
+        return sims
+
 
 # ---------------------------------------------------------------------------
 # Code parsing
@@ -255,17 +366,23 @@ class RagIndex:
 # false positives are filtered later by `_looks_like_model_id`.
 _CALL_RE = re.compile(
     r"""\b(?:from_pretrained|pipeline|SentenceTransformer|CrossEncoder|LLM|"""
-    r"""ChatOpenAI|ChatAnthropic|ChatGoogleGenerativeAI|HuggingFaceEndpoint|"""
-    r"""HuggingFaceHub|HuggingFacePipeline|AutoModel[A-Za-z]*|AutoTokenizer|"""
-    r"""AutoProcessor|DiffusionPipeline|StableDiffusionPipeline|"""
+    r"""ChatOpenAI|ChatAnthropic|ChatGoogleGenerativeAI|ChatBedrock|BedrockChat|"""
+    r"""ChatCohere|ChatGroq|ChatTogether|"""
+    r"""HuggingFaceEndpoint|HuggingFaceHub|HuggingFacePipeline|"""
+    r"""AutoModel[A-Za-z]*|AutoTokenizer|AutoProcessor|"""
+    r"""DiffusionPipeline|StableDiffusionPipeline|"""
     r"""AutoPipelineForText2Image|AutoPipelineForImage2Image|"""
-    r"""WhisperForConditionalGeneration|whisper\.load_model)\s*\(""",
+    r"""WhisperForConditionalGeneration|whisper\.load_model|"""
+    r"""replicate\.run|Replicate|timm\.create_model|create_model)\s*\(""",
     re.IGNORECASE,
 )
 
-# `model=...`, `model_name=...`, `model_id=...`, `repo_id=...` keyword args.
+# `model=...`, `model_name=...`, `model_id=...`, `repo_id=...`, `modelId=...`
+# (Bedrock camelCase) keyword args. `re.IGNORECASE` makes `modelId`,
+# `model_id`, `MODEL_ID`, `MODELID`, etc. all match a single alternation.
 _KWARG_RE = re.compile(
-    r"""\b(?:model|model_name|model_id|repo_id|model_path|pretrained_model_name_or_path)"""
+    r"""\b(?:model|model_name|model_id|modelId|repo_id|model_path|"""
+    r"""pretrained_model_name_or_path)"""
     r"""\s*=\s*['"]([^'"\n]{2,200})['"]""",
     re.IGNORECASE,
 )
@@ -277,8 +394,10 @@ _ASSIGN_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Bare quoted strings — last resort: pull every string literal and filter by shape.
-_STRING_LITERAL_RE = re.compile(r"""['"]([A-Za-z0-9_./@:\-]{3,200})['"]""")
+# Inline `# comment` stripper that respects string literals.
+_INLINE_COMMENT_RE = re.compile(
+    r"""(?<!['"])\#.*$"""
+)
 
 _KNOWN_HF_ORGS = (
     "meta-llama/", "mistralai/", "openai/", "google/", "microsoft/", "facebook/",
@@ -287,6 +406,20 @@ _KNOWN_HF_ORGS = (
     "cohere/", "ai21/", "databricks/", "mosaicml/", "01-ai/", "Salesforce/",
     "bigscience/", "bigcode/", "intfloat/", "thenlper/", "jinaai/", "mixedbread-ai/",
     "tiiuae/", "togethercomputer/", "WizardLM/", "lmsys/",
+    # Replicate / Together / Groq / etc — short org prefixes seen in
+    # community-published model slugs like
+    # ``meta/meta-llama-3-70b-instruct:abc123`` (Replicate).
+    "meta/", "replicate/", "together/", "groq/", "perplexity/", "deepseek-ai/",
+)
+
+# Bedrock-style vendor-prefixed model IDs (no slash). When a user calls
+# `bedrock.invoke_model(modelId="anthropic.claude-3-sonnet-20240229")` the
+# id starts with `anthropic.`, `meta.`, `amazon.`, `cohere.`, `ai21.`,
+# `mistral.`, `stability.` — none of which are HF orgs. We treat the
+# segment after the dot as the actual model name for prefix matching.
+_BEDROCK_VENDOR_PREFIXES = (
+    "anthropic.", "meta.", "amazon.", "cohere.", "ai21.",
+    "mistral.", "stability.", "deepseek.",
 )
 
 # Lower-cased prefixes for bare model names (no org/).
@@ -299,7 +432,8 @@ _KNOWN_MODEL_PREFIXES = (
     "phi-", "phi2", "phi3", "phi4",
     "qwen-", "qwen2", "qwen3",
     "yi-", "deepseek-",
-    "bert-", "roberta-", "distilbert", "albert-", "electra-", "xlnet-", "xlm-",
+    "bert-", "roberta-", "distilbert", "distilgpt2", "albert-", "electra-",
+    "xlnet-", "xlm-", "mobilebert",
     "t5-", "flan-t5-", "ul2-", "bart-", "pegasus-", "mbart-", "m2m100-",
     "vit-", "deit-", "swin-", "beit-", "convnext-", "efficientnet-",
     "resnet", "mobilenet", "yolov", "detr-",
@@ -321,21 +455,58 @@ def _looks_like_model_id(s: str) -> bool:
         return False
     if any(s.startswith(o) for o in _KNOWN_HF_ORGS):
         return True
-    sl = s.lower()
-    return any(sl.startswith(p) for p in _KNOWN_MODEL_PREFIXES)
+    # Strip Replicate's `:sha` version suffix and Bedrock's `vendor.` prefix
+    # before checking against bare-name prefixes so e.g.
+    #   ``meta/meta-llama-3-70b-instruct:abc123``         (Replicate)
+    #   ``anthropic.claude-3-sonnet-20240229``            (Bedrock)
+    #   ``vit_base_patch16_224``                          (timm)
+    # all resolve to a recognised model family.
+    sl = s.lower().split(":", 1)[0]
+    for vendor in _BEDROCK_VENDOR_PREFIXES:
+        if sl.startswith(vendor):
+            sl = sl[len(vendor):]
+            break
+    sl_norm = sl.replace("_", "-")
+    return any(
+        sl.startswith(p) or sl_norm.startswith(p)
+        for p in _KNOWN_MODEL_PREFIXES
+    )
 
 
 def _extract_model_hits(code: str) -> List[Tuple[int, str, str]]:
-    """Return (line_number, original_snippet, model_id) for each match.
+    """Return (line_number, original_snippet, model_id) for each model use.
 
-    Strategy (in order, deduped):
-    1. Direct kwargs: `model=...`, `repo_id=...`, etc.
-    2. Top-level assignments: `MODEL_ID = "..."`.
-    3. First positional arg of known model-loading calls (e.g. `from_pretrained("x")`).
-    4. Any bare string literal that looks like a model id (HF org/name or known prefix).
+    A "hit" only counts when a model id is *actually used*, i.e. it appears
+    as one of:
+
+    1. A keyword arg recognised as a model location:
+       ``model=``, ``model_name=``, ``model_id=``, ``modelId=``,
+       ``repo_id=``, ``model_path=``, ``pretrained_model_name_or_path=``.
+       Also matches dict-spread kwargs like ``**{"model": "gpt-4"}``
+       (requires AST parsing to reach inside the dict literal).
+    2. A top-level assignment to a model-shaped variable:
+       ``MODEL_ID = "..."``, ``model_name = "..."``, ``CHECKPOINT = "..."``,
+       and the same variable is later passed into a known call.
+    3. The first positional string literal of a known model-loading call:
+       ``from_pretrained("...")``, ``pipeline("text-gen", "...")``,
+       ``SentenceTransformer("...")``, ``ChatOpenAI("...")``, etc.
+    4. F-strings whose **constant prefix** uniquely identifies a family,
+       e.g. ``from_pretrained(f"meta-llama/Llama-{size}-Instruct")``
+       extracts ``meta-llama/Llama-`` so the catalog can pick a
+       worst-case family member.
+
+    We deliberately do **not** scan every bare string literal — that would
+    flag random strings inside lists, descriptions, doc-strings, log
+    messages, and inline comments as "models" and produce ghost
+    suggestions for snippets the user never executes.
+
+    Implementation: we run **AST extraction first** (handles variables,
+    dict-spread, f-strings) and then union with the **regex extractor**
+    which is more permissive about wrapper functions (any callable with a
+    recognised ``model=`` kwarg, even if its name is unknown to us).
     """
-    hits: List[Tuple[int, str, str]] = []
     seen: set[Tuple[int, str]] = set()
+    hits: List[Tuple[int, str, str]] = []
 
     def _add(line_no: int, snippet: str, candidate: str) -> None:
         if not _looks_like_model_id(candidate):
@@ -346,17 +517,31 @@ def _extract_model_hits(code: str) -> List[Tuple[int, str, str]]:
         seen.add(key)
         hits.append((line_no, snippet, candidate))
 
+    for line_no, snippet, candidate in _extract_via_ast(code):
+        _add(line_no, snippet, candidate)
+    for line_no, snippet, candidate in _extract_via_regex(code):
+        _add(line_no, snippet, candidate)
+    return hits
+
+
+def _extract_via_regex(code: str) -> List[Tuple[int, str, str]]:
+    """Original regex extractor — matches kwargs, MODEL_* assignments, and
+    positional literals of known calls. Robust on partial / non-parseable
+    snippets where the AST path bails out."""
+    out: List[Tuple[int, str, str]] = []
     for idx, raw in enumerate(code.splitlines(), start=1):
-        line = raw.strip()
+        # Strip trailing inline `# ...` comments so models referenced only in
+        # a comment never trigger suggestions.
+        line = _INLINE_COMMENT_RE.sub("", raw).strip()
         if not line or line.startswith("#"):
             continue
 
         for m in _KWARG_RE.finditer(line):
-            _add(idx, line, m.group(1))
+            out.append((idx, line, m.group(1)))
 
         am = _ASSIGN_RE.match(line)
         if am:
-            _add(idx, line, am.group(1))
+            out.append((idx, line, am.group(1)))
 
         # Positional first arg of a known call (heuristic — parse the literal
         # that follows the opening paren until the next ')' or ',').
@@ -364,15 +549,8 @@ def _extract_model_hits(code: str) -> List[Tuple[int, str, str]]:
             tail = line[cm.end():]
             lit = _first_string_literal(tail)
             if lit:
-                _add(idx, line, lit)
-
-        # Last resort: any bare string literal that "looks like" a model id.
-        # This catches `MODEL = "gpt-4o-mini"` style as well as comments-stripped
-        # string constants embedded mid-call.
-        for sm in _STRING_LITERAL_RE.finditer(line):
-            _add(idx, line, sm.group(1))
-
-    return hits
+                out.append((idx, line, lit))
+    return out
 
 
 def _first_string_literal(s: str) -> str | None:
@@ -380,13 +558,276 @@ def _first_string_literal(s: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _ids_match(a: str, b: str) -> bool:
-    """True when `a` and `b` are the same model id (case-insensitive,
-    optional `org/` prefix on either side)."""
-    al, bl = a.lower(), b.lower()
-    if al == bl:
+# ---------------------------------------------------------------------------
+# AST extractor — handles variables, dict-spread kwargs, and f-strings
+# ---------------------------------------------------------------------------
+
+# Kwargs that are known to carry a model id. Mirrors `_KWARG_RE` (the
+# regex variant) but lookup-friendly. Compared case-insensitively below.
+_MODEL_KWARG_NAMES = frozenset(
+    s.lower()
+    for s in (
+        "model",
+        "model_name",
+        "model_id",
+        "modelId",
+        "repo_id",
+        "model_path",
+        "pretrained_model_name_or_path",
+    )
+)
+
+# Bare callable names that take a model id positionally. Mirrors `_CALL_RE`.
+# Compared case-insensitively. The `AutoModel*` family is handled with a
+# `startswith("automodel")` check below.
+_KNOWN_CALL_NAMES = frozenset(
+    s.lower()
+    for s in (
+        "from_pretrained",
+        "pipeline",
+        "SentenceTransformer",
+        "CrossEncoder",
+        "LLM",
+        "ChatOpenAI",
+        "ChatAnthropic",
+        "ChatGoogleGenerativeAI",
+        "ChatBedrock",
+        "BedrockChat",
+        "ChatCohere",
+        "ChatGroq",
+        "ChatTogether",
+        "HuggingFaceEndpoint",
+        "HuggingFaceHub",
+        "HuggingFacePipeline",
+        "AutoTokenizer",
+        "AutoProcessor",
+        "DiffusionPipeline",
+        "StableDiffusionPipeline",
+        "AutoPipelineForText2Image",
+        "AutoPipelineForImage2Image",
+        "WhisperForConditionalGeneration",
+        "load_model",  # whisper.load_model
+        "run",  # replicate.run
+        "Replicate",
+        "create_model",  # timm.create_model
+    )
+)
+
+_MODEL_NAMED_ASSIGN_RE = re.compile(
+    r"^(?:MODEL(?:_ID|_NAME)?|model(?:_id|_name)?|HF_MODEL|CHECKPOINT)$",
+    re.IGNORECASE,
+)
+
+
+def _extract_via_ast(code: str) -> List[Tuple[int, str, str]]:
+    """AST-based extractor. Returns [] if the code doesn't parse."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []
+
+    code_lines = code.splitlines()
+    sym_table = _build_symbol_table(tree)
+    hits: List[Tuple[int, str, str]] = []
+
+    def _snippet_for(line_no: int) -> str:
+        if 0 < line_no <= len(code_lines):
+            return code_lines[line_no - 1].strip()
+        return ""
+
+    # Top-level MODEL_*-shaped assignments: pull the literal even if the
+    # value is never wired into a known call (matches the legacy
+    # _ASSIGN_RE behaviour so existing UX is preserved).
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name) and _MODEL_NAMED_ASSIGN_RE.match(target.id):
+                lit = _resolve_to_string(node.value, sym_table)
+                if lit:
+                    hits.append((node.lineno, _snippet_for(node.lineno), lit))
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        line = node.lineno
+        snippet = _snippet_for(line)
+        is_known = _is_known_callable(node.func)
+
+        # Dict-spread `**{"model": "gpt-4"}` is checked for *every* call,
+        # not just known ones, because closed-API SDK calls like
+        # `OpenAI().chat.completions.create(**{"model": "..."})` use
+        # generic terminal callables (`create`, `invoke`) that we can't
+        # safely add to `_KNOWN_CALL_NAMES` without producing false
+        # positives. The strong filter `_looks_like_model_id` on the
+        # resolved value protects us.
+        for kw in node.keywords:
+            if kw.arg is None and isinstance(kw.value, ast.Dict):
+                for k_node, v_node in zip(kw.value.keys, kw.value.values):
+                    if (
+                        isinstance(k_node, ast.Constant)
+                        and isinstance(k_node.value, str)
+                        and k_node.value.lower() in _MODEL_KWARG_NAMES
+                    ):
+                        lit = _resolve_to_string(v_node, sym_table)
+                        if lit:
+                            hits.append((line, snippet, lit))
+
+        if not is_known:
+            # Direct kwargs and positional args of unknown callables are
+            # left to the regex extractor — adding them here would flag
+            # too many incidental string literals as "models".
+            continue
+
+        # First two positional args (covers `pipeline("task", "model")`).
+        for pos_arg in node.args[:2]:
+            lit = _resolve_to_string(pos_arg, sym_table)
+            if lit:
+                hits.append((line, snippet, lit))
+                break
+
+        # Direct keyword args of known callables.
+        for kw in node.keywords:
+            if kw.arg is None:
+                continue  # dict-spread already handled above
+            if kw.arg.lower() in _MODEL_KWARG_NAMES:
+                lit = _resolve_to_string(kw.value, sym_table)
+                if lit:
+                    hits.append((line, snippet, lit))
+
+    return hits
+
+
+def _build_symbol_table(tree: ast.AST) -> dict[str, str]:
+    """Map ``NAME -> "literal string"`` for any top-level / nested simple
+    assignment of a string constant. Lets us resolve
+    ``MID = "gpt2-xl"; from_pretrained(MID)`` across statements."""
+    table: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if not isinstance(target, ast.Name):
+                continue
+            if (
+                isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                # Last assignment wins — matches Python runtime semantics
+                # closely enough for static lookup.
+                table[target.id] = node.value.value
+            elif isinstance(node.value, ast.JoinedStr):
+                joined = _join_fstring(node.value)
+                if joined:
+                    table[target.id] = joined
+    return table
+
+
+def _resolve_to_string(node: ast.AST, sym_table: dict[str, str]) -> Optional[str]:
+    """Best-effort: turn an AST expression into a string literal candidate.
+
+    Handles:
+    - ``ast.Constant("...")``
+    - ``ast.Name`` looked up in ``sym_table``
+    - ``ast.JoinedStr`` (f-string) — concatenates leading constants until
+      the first runtime expression and stops; if the resulting prefix is
+      "long enough" to be a model id, returns it.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name):
+        return sym_table.get(node.id)
+    if isinstance(node, ast.JoinedStr):
+        return _join_fstring(node)
+    return None
+
+
+def _join_fstring(node: ast.JoinedStr) -> Optional[str]:
+    """Concatenate the leading constant pieces of an f-string up to (but
+    not including) the first ``FormattedValue``. Returns ``None`` if no
+    usable prefix exists.
+
+    The prefix is the only part we can statically rely on; downstream
+    matching (`_looks_like_model_id`, catalog lookup) treats it as a
+    "family hint" and the carbon estimator's prefix-family fallback
+    picks the worst-case variant in that family.
+    """
+    parts: List[str] = []
+    for v in node.values:
+        if isinstance(v, ast.Constant) and isinstance(v.value, str):
+            parts.append(v.value)
+        else:
+            break
+    prefix = "".join(parts)
+    return prefix if len(prefix) >= 4 else None
+
+
+def _is_known_callable(node: ast.AST) -> bool:
+    """True if `node` is a Name / Attribute whose final segment matches
+    one of `_KNOWN_CALL_NAMES` (or the `AutoModel*` family)."""
+    name: Optional[str] = None
+    if isinstance(node, ast.Name):
+        name = node.id
+    elif isinstance(node, ast.Attribute):
+        name = node.attr
+    if not name:
+        return False
+    n = name.lower()
+    if n in _KNOWN_CALL_NAMES:
         return True
-    return al.split("/", 1)[-1] == bl.split("/", 1)[-1]
+    if n.startswith("automodel"):
+        return True
+    return False
+
+
+def _ids_match(a: str, b: str) -> bool:
+    """True when `a` and `b` refer to the same model.
+
+    Tolerated variations:
+
+    - case (HF mirrors are case-preserving; APIs are not)
+    - the optional ``org/`` HF prefix on either side
+    - the optional Bedrock ``vendor.`` prefix (``anthropic.``, ``meta.``)
+    - Replicate's trailing ``:sha`` version pin
+    - ``_`` vs ``-`` (timm uses underscores; the HF mirror uses dashes)
+
+    On top of straight equality, we accept a **token-anchored substring
+    match** so that Replicate-style slugs like
+    ``meta/meta-llama-3-70b-instruct`` still match a corpus ``from`` of
+    ``meta-llama/Llama-3-70B`` (the canonical id is "contained in" the
+    Replicate slug, separated by ``-`` boundaries). The shorter side
+    must be at least 5 chars to avoid spurious matches against generic
+    tokens like ``base`` or ``v2``.
+    """
+
+    def _normalise(x: str) -> str:
+        x = x.lower().split(":", 1)[0]
+        for vendor in _BEDROCK_VENDOR_PREFIXES:
+            if x.startswith(vendor):
+                x = x[len(vendor):]
+                break
+        x = x.split("/", 1)[-1]
+        return x.replace("_", "-")
+
+    na, nb = _normalise(a), _normalise(b)
+    if na == nb:
+        return True
+
+    def _contained(short: str, long: str) -> bool:
+        """`short` appears in `long` bounded by `-` (or string ends)."""
+        if len(short) < 5 or short not in long:
+            return False
+        # Require dash/edge boundary so `bert-base` doesn't match
+        # `roberta-base` (would substring-hit on `bert-base` → no, `roberta`
+        # ends with `a`, not `bert`; the real risk is e.g. `gpt2` matching
+        # inside `gpt2-xl`. We anchor on `-` to forbid that.)
+        i = long.find(short)
+        before = long[i - 1] if i > 0 else "-"
+        after_idx = i + len(short)
+        after = long[after_idx] if after_idx < len(long) else "-"
+        return before == "-" and after == "-"
+
+    if len(na) >= len(nb):
+        return _contained(nb, na)
+    return _contained(na, nb)
 
 
 def _swap(snippet: str, old: str, new: str) -> str:

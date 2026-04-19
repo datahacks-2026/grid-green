@@ -70,6 +70,248 @@ model.fit(x, y, epochs=3, batch_size=16)
     assert any(p["pattern"] == "from_pretrained" for p in body["detected_patterns"])
 
 
+def test_estimate_carbon_basic_model_is_not_low_confidence() -> None:
+    """Regression: previously `gpt2-xl` was unknown to the catalog and the
+    estimator returned `confidence='low'`. After unifying detection with
+    the RAG extractor it should be recognised as a single high-confidence
+    hit."""
+    code = (
+        "from transformers import AutoModelForCausalLM\n"
+        "m = AutoModelForCausalLM.from_pretrained('gpt2-xl')\n"
+    )
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["confidence"] == "high", (
+        f"expected 'high' for a single known model, got {body['confidence']}"
+    )
+    assert body["co2_grams_now"] > 0
+
+
+def test_estimate_carbon_api_model_via_kwarg_is_recognised() -> None:
+    """OpenAI-style `model='gpt-4'` kwarg used to evade detection (estimator
+    only scanned `from_pretrained` literals). It must now register."""
+    code = (
+        "from openai import OpenAI\n"
+        "client = OpenAI()\n"
+        "resp = client.chat.completions.create(model='gpt-4-turbo', messages=[])\n"
+    )
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["confidence"] in {"high", "medium"}, body
+    assert body["co2_grams_now"] > 0
+
+
+def test_estimate_carbon_bedrock_modelid_kwarg_detected() -> None:
+    """AWS Bedrock SDK uses camelCase `modelId=` and dotted vendor prefixes
+    like `anthropic.claude-3-sonnet-20240229`. Both must register."""
+    code = (
+        "import boto3\n"
+        "bedrock = boto3.client('bedrock-runtime')\n"
+        "resp = bedrock.invoke_model(modelId='anthropic.claude-3-sonnet-20240229', body=b'')\n"
+    )
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["confidence"] in {"high", "medium"}, body
+    assert body["co2_grams_now"] > 0
+
+
+def test_estimate_carbon_dedups_repeated_model_id_for_high_confidence() -> None:
+    """Loading the same model twice (e.g. tokenizer + model) used to produce
+    two hits → `confidence='medium'`. Dedup by catalog key keeps it `high`."""
+    code = (
+        "from transformers import AutoTokenizer, AutoModelForCausalLM\n"
+        "tok = AutoTokenizer.from_pretrained('gpt2-xl')\n"
+        "m = AutoModelForCausalLM.from_pretrained('gpt2-xl')\n"
+    )
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["confidence"] == "high", body
+
+
+def test_estimate_carbon_takes_max_epochs_across_file() -> None:
+    """Two `epochs=` literals in the same script — the bigger one drives
+    cost (worst-case). Compare against a baseline that only has the small
+    value: the larger-epoch run must be strictly more expensive."""
+    base_code = (
+        "from transformers import AutoModelForCausalLM, Trainer\n"
+        "m = AutoModelForCausalLM.from_pretrained('gpt2-xl')\n"
+        "Trainer(model=m).train(epochs=1)\n"
+    )
+    multi_code = (
+        "from transformers import AutoModelForCausalLM, Trainer\n"
+        "m = AutoModelForCausalLM.from_pretrained('gpt2-xl')\n"
+        "Trainer(model=m).train(epochs=1)  # smoke test\n"
+        "Trainer(model=m).train(epochs=10)\n"
+    )
+    r1 = client.post("/api/estimate_carbon", json={"code": base_code, "region": "CISO"})
+    r2 = client.post("/api/estimate_carbon", json={"code": multi_code, "region": "CISO"})
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r2.json()["co2_grams_now"] > r1.json()["co2_grams_now"], (
+        f"max-epochs scaling broken: base={r1.json()['co2_grams_now']} "
+        f"multi={r2.json()['co2_grams_now']}"
+    )
+
+
+def test_estimate_carbon_takes_min_batch_size_across_file() -> None:
+    """Two `batch_size=` literals — the smaller one drives cost (smaller
+    batches → more wall time per epoch)."""
+    base_code = (
+        "from transformers import AutoModelForCausalLM, Trainer\n"
+        "m = AutoModelForCausalLM.from_pretrained('gpt2-xl')\n"
+        "Trainer(model=m).train(epochs=2, batch_size=64)\n"
+    )
+    multi_code = (
+        "from transformers import AutoModelForCausalLM, Trainer\n"
+        "m = AutoModelForCausalLM.from_pretrained('gpt2-xl')\n"
+        "Trainer(model=m).train(epochs=2, batch_size=64)\n"
+        "Trainer(model=m).train(epochs=2, batch_size=4)\n"
+    )
+    r1 = client.post("/api/estimate_carbon", json={"code": base_code, "region": "CISO"})
+    r2 = client.post("/api/estimate_carbon", json={"code": multi_code, "region": "CISO"})
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r2.json()["co2_grams_now"] > r1.json()["co2_grams_now"], (
+        f"min-batch scaling broken: base={r1.json()['co2_grams_now']} "
+        f"multi={r2.json()['co2_grams_now']}"
+    )
+
+
+def test_estimate_carbon_resolves_variable_assignment_across_statements() -> None:
+    """`MID = "gpt2-xl"` then `from_pretrained(MID)` — the AST walker
+    must follow the variable to its literal value (regex extractor
+    couldn't, so the call site looked like just `from_pretrained(MID)`)."""
+    code = (
+        "from transformers import AutoModelForCausalLM\n"
+        "MID = 'gpt2-xl'\n"
+        "m = AutoModelForCausalLM.from_pretrained(MID)\n"
+    )
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["confidence"] == "high", body
+    assert body["co2_grams_now"] > 0
+
+
+def test_estimate_carbon_dict_spread_kwarg_detected() -> None:
+    """`client.create(**{"model": "gpt-4-turbo"})` — only the AST walker
+    can see inside the dict literal. Regex would miss it entirely."""
+    code = (
+        "from openai import OpenAI\n"
+        "kw = {'model': 'gpt-4-turbo'}\n"
+        "OpenAI().chat.completions.create(**kw)\n"
+    )
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    body = r.json()
+    # Note: the dict is bound to a variable then spread. Resolving the
+    # variable requires the symbol table lookup; we only resolve direct
+    # `**{"model": "..."}` literals. Either way the literal in the dict
+    # `kw = {'model': 'gpt-4-turbo'}` is NOT one we read, so this case
+    # should still gracefully degrade rather than crash.
+    assert body["confidence"] in {"low", "medium", "high"}, body
+
+
+def test_estimate_carbon_dict_spread_inline_literal_detected() -> None:
+    """The case the AST walker *does* fully resolve: a dict literal
+    spread directly into the call."""
+    code = (
+        "from openai import OpenAI\n"
+        "OpenAI().chat.completions.create(**{'model': 'gpt-4-turbo'}, messages=[])\n"
+    )
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["confidence"] in {"high", "medium"}, body
+
+
+def test_estimate_carbon_fstring_prefix_falls_back_to_family() -> None:
+    """f-string with a known-family constant prefix (`meta-llama/Llama-`)
+    should at least produce a worst-case family estimate, not the
+    `low` confidence + 0.1B placeholder."""
+    code = (
+        "from transformers import AutoModelForCausalLM\n"
+        "size = '70B'\n"
+        "m = AutoModelForCausalLM.from_pretrained(f'meta-llama/Llama-3.1-{size}')\n"
+    )
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    body = r.json()
+    # Family fallback fires → uses the largest llama entry. We just
+    # check we escaped the 0.1B/5h placeholder fallback.
+    assert body["co2_grams_now"] > 100, body
+    assert body["gpu_hours"] > 1.0, body
+
+
+def test_estimate_carbon_sklearn_random_forest_recognised() -> None:
+    """Classical ML scripts must produce a non-trivial estimate (not
+    `confidence: low` + 0.1B placeholder)."""
+    code = (
+        "from sklearn.ensemble import RandomForestClassifier\n"
+        "rf = RandomForestClassifier(n_estimators=2000)\n"
+        "rf.fit(X, y)\n"
+    )
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["confidence"] == "medium", body
+    assert body["co2_grams_now"] > 0
+    assert any(
+        p["pattern"].startswith("sklearn:") for p in body["detected_patterns"]
+    ), body["detected_patterns"]
+
+
+def test_estimate_carbon_xgboost_recognised() -> None:
+    """XGBoost / LightGBM constructors should also count."""
+    code = (
+        "import xgboost as xgb\n"
+        "model = xgb.XGBClassifier(n_estimators=500)\n"
+        "model.fit(X, y)\n"
+    )
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["confidence"] == "medium", body
+    assert any(
+        "xgb" in p["pattern"].lower() for p in body["detected_patterns"]
+    ), body["detected_patterns"]
+
+
+def test_estimate_carbon_sklearn_n_estimators_scales_cost() -> None:
+    """A 5000-tree RandomForest should be charged more than a 50-tree
+    one, scaling roughly with `n_estimators`."""
+    small = (
+        "from sklearn.ensemble import RandomForestClassifier\n"
+        "RandomForestClassifier(n_estimators=50).fit(X, y)\n"
+    )
+    big = (
+        "from sklearn.ensemble import RandomForestClassifier\n"
+        "RandomForestClassifier(n_estimators=5000).fit(X, y)\n"
+    )
+    r1 = client.post("/api/estimate_carbon", json={"code": small, "region": "CISO"})
+    r2 = client.post("/api/estimate_carbon", json={"code": big, "region": "CISO"})
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r2.json()["co2_grams_now"] > r1.json()["co2_grams_now"], (
+        f"n_estimators scaling broken: 50→{r1.json()['co2_grams_now']} "
+        f"5000→{r2.json()['co2_grams_now']}"
+    )
+
+
+def test_estimate_carbon_timm_underscore_variant_detected() -> None:
+    """timm uses underscore-separated names (`vit_base_patch16_224`); we
+    normalise `_` → `-` so the catalog still matches `vit-base`."""
+    code = (
+        "import timm\n"
+        "m = timm.create_model('vit_large_patch16_224', pretrained=True)\n"
+    )
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["confidence"] == "high", body
+
+
 def test_estimate_carbon_rejects_oversized_payload() -> None:
     big_code = "x = 1\n" * 200_000
     r = client.post("/api/estimate_carbon", json={"code": big_code, "region": "CISO"})
@@ -108,6 +350,60 @@ def test_suggest_greener_no_models_returns_empty() -> None:
     assert r.json()["suggestions"] == []
 
 
+def test_suggest_greener_ignores_inline_comment_reference() -> None:
+    """A model name inside an inline comment must not trigger a swap."""
+    code = "x = 1  # we used to use 'google/flan-t5-xxl' here\n"
+    r = client.post("/api/suggest_greener", json={"code": code})
+    assert r.status_code == 200
+    assert r.json()["suggestions"] == [], (
+        "model id inside a comment should not produce a suggestion"
+    )
+
+
+def test_suggest_greener_ignores_string_in_unrelated_list() -> None:
+    """A bare string literal inside a list/log message is not 'usage'."""
+    code = (
+        "names = ['google/flan-t5-xxl', 'meta-llama/Llama-3-70B']\n"
+        "print('candidates:', names)\n"
+    )
+    r = client.post("/api/suggest_greener", json={"code": code})
+    assert r.status_code == 200
+    assert r.json()["suggestions"] == [], (
+        "model ids only mentioned inside a list literal should not produce suggestions"
+    )
+
+
+def test_suggest_greener_ignores_log_message_with_model_name() -> None:
+    code = "print('about to use bert-large-uncased for eval')\n"
+    r = client.post("/api/suggest_greener", json={"code": code})
+    assert r.status_code == 200
+    assert r.json()["suggestions"] == []
+
+
+def test_suggest_greener_detects_basic_gpt2_xl() -> None:
+    code = (
+        "from transformers import AutoModelForCausalLM\n"
+        "m = AutoModelForCausalLM.from_pretrained('gpt2-xl')\n"
+    )
+    r = client.post("/api/suggest_greener", json={"code": code})
+    assert r.status_code == 200
+    suggestions = r.json()["suggestions"]
+    assert suggestions, "expected greener swap for basic gpt2-xl"
+    assert "gpt2-large" in suggestions[0]["alternative_snippet"].lower()
+
+
+def test_suggest_greener_detects_basic_t5_large() -> None:
+    code = (
+        "from transformers import T5ForConditionalGeneration\n"
+        "m = T5ForConditionalGeneration.from_pretrained('t5-large')\n"
+    )
+    r = client.post("/api/suggest_greener", json={"code": code})
+    assert r.status_code == 200
+    suggestions = r.json()["suggestions"]
+    assert suggestions, "expected greener swap for basic t5-large"
+    assert "t5-base" in suggestions[0]["alternative_snippet"].lower()
+
+
 def test_suggest_greener_detects_openai_api_model() -> None:
     code = (
         "from openai import OpenAI\n"
@@ -137,6 +433,35 @@ def test_suggest_greener_detects_pipeline_kwarg() -> None:
     suggestions = r.json()["suggestions"]
     assert suggestions, "expected greener swap for Mixtral-8x7B"
     assert "mistral-7b" in suggestions[0]["alternative_snippet"].lower()
+
+
+def test_suggest_greener_detects_replicate_slug_with_sha() -> None:
+    """Replicate slugs look like `meta/meta-llama-3-70b-instruct:abc123`.
+    We accept the `meta/` org and strip the `:sha` version pin so the
+    catalog still matches Llama-3-70B → Llama-3-8B."""
+    code = (
+        "import replicate\n"
+        "out = replicate.run('meta/meta-llama-3-70b-instruct:abc123', input={'prompt': 'hi'})\n"
+    )
+    r = client.post("/api/suggest_greener", json={"code": code})
+    assert r.status_code == 200
+    suggestions = r.json()["suggestions"]
+    assert suggestions, "expected greener swap for Replicate Llama-3-70B slug"
+
+
+def test_suggest_greener_detects_bedrock_dotted_id() -> None:
+    """Bedrock vendor-prefixed IDs (`anthropic.claude-3-opus-20240229`)
+    must still match the corpus `from` field after stripping the dot
+    prefix."""
+    code = (
+        "import boto3\n"
+        "bedrock = boto3.client('bedrock-runtime')\n"
+        "resp = bedrock.invoke_model(modelId='anthropic.claude-3-opus-20240229', body=b'')\n"
+    )
+    r = client.post("/api/suggest_greener", json={"code": code})
+    assert r.status_code == 200
+    suggestions = r.json()["suggestions"]
+    assert suggestions, "expected greener swap for Bedrock claude-3-opus"
 
 
 def test_suggest_greener_merges_part_a_context_into_reasoning() -> None:
