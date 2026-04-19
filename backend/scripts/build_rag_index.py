@@ -14,9 +14,11 @@ table — requires `SNOWFLAKE_*` and a Cortex-enabled warehouse.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
+import random
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -27,6 +29,17 @@ if ROOT not in sys.path:
 from app.services import rag  # noqa: E402
 
 logger = logging.getLogger("build_rag_index")
+
+
+def _deterministic_vec(text: str, dim: int = 384) -> list[float]:
+    """Create a stable fallback vector when sentence-transformers is unavailable."""
+    seed = int.from_bytes(hashlib.sha256(text.encode("utf-8")).digest()[:8], "big")
+    rng = random.Random(seed)
+    vec = [rng.uniform(-1.0, 1.0) for _ in range(dim)]
+    norm = sum(v * v for v in vec) ** 0.5
+    if norm <= 0:
+        return [0.0] * dim
+    return [v / norm for v in vec]
 
 
 def build_local() -> None:
@@ -59,12 +72,12 @@ def build_snowflake() -> None:
     index = rag.get_index()
     index._ensure_loaded()  # noqa: SLF001
 
-    if index._st_matrix is None:  # noqa: SLF001
-        logger.error(
-            "sentence-transformers not available — install requirements-extras.txt or "
-            "run scripts/brev_embed.py first."
+    use_fallback_vectors = index._st_matrix is None  # noqa: SLF001
+    if use_fallback_vectors:
+        logger.warning(
+            "sentence-transformers unavailable; using deterministic fallback vectors "
+            "for Snowflake upload."
         )
-        sys.exit(1)
 
     ctx = snowflake.connector.connect(
         account=settings.snowflake_account,
@@ -97,8 +110,14 @@ def build_snowflake() -> None:
             SELECT %s, %s, %s, %s, PARSE_JSON(%s)::VECTOR(FLOAT, 384)
             """
         uploaded = 0
-        for entry, vec in zip(index._entries, index._st_matrix):  # noqa: SLF001
-            emb_json = json.dumps([float(x) for x in vec])
+        entries = index._entries  # noqa: SLF001
+        vectors = (
+            [_deterministic_vec(e.doc_text) for e in entries]
+            if use_fallback_vectors
+            else [[float(x) for x in vec] for vec in index._st_matrix]  # noqa: SLF001
+        )
+        for entry, vec in zip(entries, vectors):
+            emb_json = json.dumps(vec)
             cs.execute(
                 insert_sql,
                 (

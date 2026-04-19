@@ -246,6 +246,7 @@ green-watts/
 |---|---|
 | [`CONTRACT.md`](CONTRACT.md) | API request/response schemas |
 | [`HOW_TO_RUN.md`](HOW_TO_RUN.md) | Detailed setup, env vars, EIA verification |
+| [`CLOUD_SETUP.md`](CLOUD_SETUP.md) | Step-by-step setup for each cloud integration |
 | [`PLANNING.md`](PLANNING.md) | Internal hackathon planning (schedules, work splits, demo script) |
 | [`evaluation/README.md`](evaluation/README.md) | Benchmark methodology and workload descriptions |
 
@@ -276,7 +277,7 @@ GridGreen includes re-runnable scripts for each sponsor technology:
 | NVIDIA Brev | `python -m scripts.brev_embed` | GPU embedding workload + optional W&B logging |
 | Google Gemini | Automatic when `GEMINI_API_KEY` is set | NL reasoning polish for suggestions |
 
-All scripts run from `backend/`. See [`HOW_TO_RUN.md`](HOW_TO_RUN.md) for env var setup.
+All scripts run from `backend/`. See [`CLOUD_SETUP.md`](CLOUD_SETUP.md) for step-by-step setup of each service.
 
 ---
 
