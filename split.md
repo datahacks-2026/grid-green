@@ -165,3 +165,34 @@ Staggered: Person A sleeps 14–20, Person B sleeps 15–22. Someone always onli
 ---
 
 The key insight: **each person's slice is a complete user story.** Person A's demo is "paste code → see when to run." Person B's demo is "see what cheaper model to use → apply it." Together it's the full product. Neither is a dependency for the other until Phase 3.
+
+---
+
+## Runtime architecture (high level)
+
+```mermaid
+flowchart LR
+  subgraph client [Browser]
+    UI[Next.js UI\nMonaco + modal + sidebar]
+  end
+  subgraph api [FastAPI backend]
+    G[Grid routes\ncheck_grid / find_clean_window / estimate_carbon]
+    R[Repo + RAG\nanalyze_repo / suggest_greener]
+    H[Health\ndiagnostics / ping]
+    M[MCP server\ncontract tools]
+  end
+  subgraph data [Data layer]
+    EIA[EIA client +\ningest_eia script]
+    SQL[(SQLite +\noptional Snowflake)]
+    CORP[hf_corpus.json +\nembedding cache]
+  end
+  UI -->|HTTP JSON| api
+  G --> SQL
+  R --> CORP
+  EIA --> SQL
+  M --> G
+  M --> R
+```
+
+EIA hourly rows flow **EIA API (or mock) → `storage.insert_eia_rows` → SQLite**,
+then grid endpoints read through the storage facade for forecasts.

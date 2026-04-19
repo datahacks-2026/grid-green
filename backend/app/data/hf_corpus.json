@@ -1,5 +1,6 @@
 {
-  "_about": "Curated 'big model -> greener alternative' pairs used by RAG. Numbers are approximate and meant for ranking, not absolute claims. Edit freely; build_rag_index.py rebuilds the vector matrix.",
+  "_about": "Curated 'big model -> greener alternative' pairs used by RAG.",
+  "_methodology": "carbon_saved_pct is derived from the parameter ratio (1 - params_to/params_from) as a proxy for compute reduction — not a measured energy delta. performance_retained_pct references published benchmark comparisons (MMLU, BIG-bench, Open LLM Leaderboard, etc.) where available; otherwise it is an informed estimate. These numbers are directional for ranking, not absolute claims.",
   "entries": [
     {
       "from": "google/flan-t5-xxl",
@@ -77,6 +78,17 @@
       "citation": "Jiang et al., Mistral 7B / Mixtral, 2023. https://arxiv.org/abs/2310.06825",
       "reasoning": "Dense Mistral-7B is a strong baseline; Mixtral's MoE is overkill for many fine-tunes.",
       "tags": ["llm", "decoder", "mistral"]
+    },
+    {
+      "from": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+      "to": "mistralai/Mistral-7B-Instruct-v0.1",
+      "params_from_b": 47.0,
+      "params_to_b": 7.0,
+      "carbon_saved_pct": 70,
+      "performance_retained_pct": 87,
+      "citation": "Jiang et al., Mistral 7B / Mixtral, 2023. https://arxiv.org/abs/2310.06825",
+      "reasoning": "Dense Mistral-7B-Instruct is a strong baseline for chat/instruction workloads; Mixtral's MoE adds throughput but not quality for most fine-tunes.",
+      "tags": ["llm", "decoder", "mistral", "instruct"]
     },
     {
       "from": "bert-large-uncased",
@@ -220,6 +232,17 @@
       "citation": "Almazrouei et al., Falcon, 2023.",
       "reasoning": "Falcon-7B is a competitive alternative for many fine-tunes at far lower cost.",
       "tags": ["llm", "decoder", "falcon"]
+    },
+    {
+      "from": "Qwen/Qwen2.5-72B",
+      "to": "Qwen/Qwen2.5-7B",
+      "params_from_b": 72.0,
+      "params_to_b": 7.0,
+      "carbon_saved_pct": 88,
+      "performance_retained_pct": 85,
+      "citation": "Alibaba, Qwen2.5 Technical Report, 2024. https://arxiv.org/abs/2412.15115",
+      "reasoning": "Qwen2.5-7B retains most of the 72B base quality at ~10% of the compute budget.",
+      "tags": ["llm", "decoder", "qwen"]
     },
     {
       "from": "Qwen/Qwen2-72B",

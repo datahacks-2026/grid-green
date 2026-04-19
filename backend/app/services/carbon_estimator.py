@@ -1,12 +1,44 @@
 """Rules-based code → carbon estimator.
 
-Detects model loads (HF `from_pretrained`, sklearn `.fit`, torch training
-loops, etc.), looks up parameter counts from a small built-in catalog, and
-maps to GPU-hours and kWh assuming an A100-class baseline. Multiplied by
-current grid intensity to yield gCO2.
+## Methodology
 
-Phase 5 swaps the catalog for a richer source / RAG-backed lookup. The
-shape returned matches `EstimateCarbonResponse` in CONTRACT.md.
+The estimator detects model loads and training patterns via AST + regex,
+looks up parameter counts from a curated catalog, and converts to energy
+using published scaling relationships:
+
+**FLOPs → GPU-hours:**
+  For a transformer with *P* parameters, one forward pass ≈ 2P FLOPs and
+  one full training step (forward + backward + optimizer) ≈ 6P FLOPs
+  (Kaplan et al., "Scaling Laws for Neural Language Models," 2020,
+  https://arxiv.org/abs/2001.08361). We do not know dataset size from
+  static analysis, so catalog entries store a representative
+  ``full_train_gpu_hours`` derived from published training reports
+  (Patterson et al., "Carbon Emissions and Large Neural Network Training,"
+  2022, https://arxiv.org/abs/2104.10350).
+
+**Fine-tune vs pre-train scaling:**
+  Strubell et al., "Energy and Policy Considerations for Deep Learning in
+  NLP," 2019, https://arxiv.org/abs/1906.02243, show fine-tuning typically
+  consumes 0.5–5% of full pre-training energy. We use 5% as the default
+  for inference / single-epoch fine-tune, scaling linearly with ``epochs``
+  (capped at 100%) for multi-epoch runs. This is a *conservative
+  upper-bound heuristic* — LoRA and adapter methods use far less.
+
+**GPU power:**
+  A100 80GB TDP is 400W; Patterson et al. measure ~250–300W average
+  utilisation. We use 400W (worst-case) × GPU-hours → kWh.
+
+**Limitations (honest):**
+  - No dataset-size awareness (static analysis only).
+  - Batch-size effect uses a (32/B)^0.25 heuristic; real scaling is
+    hardware- and kernel-dependent.
+  - Closed-API models (GPT-4, Claude) use a flat inference-budget proxy;
+    actual datacenter draw is opaque.
+  - Numbers are *order-of-magnitude directional estimates*, not metered
+    power measurements. For ground-truth, pair with CodeCarbon or
+    datacenter telemetry.
+
+The shape returned matches ``EstimateCarbonResponse`` in CONTRACT.md.
 """
 
 from __future__ import annotations

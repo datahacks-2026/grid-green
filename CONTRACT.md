@@ -44,6 +44,27 @@ All endpoints are mounted under `/api`.
 script for that practice id (deduped). These are **advisory** signals separate from
 `detected_patterns` (model-load / trainer heuristics).
 
+The response now includes a **`methodology`** block documenting provenance:
+
+```json
+{
+  "methodology": {
+    "approach": "rules-based-static-analysis",
+    "gpu_assumed": "A100-80GB @ 400W TDP",
+    "scaling_refs": [
+      "Patterson et al., 2022. https://arxiv.org/abs/2104.10350",
+      "Kaplan et al., 2020. https://arxiv.org/abs/2001.08361",
+      "Strubell et al., 2019. https://arxiv.org/abs/1906.02243"
+    ],
+    "limitations": "No dataset-size awareness; batch-size heuristic; ..."
+  }
+}
+```
+
+**These are order-of-magnitude directional estimates from static code analysis
+and published scaling laws — not metered datacenter power.** For ground-truth,
+pair with runtime telemetry (CodeCarbon, RAPL, DCGM).
+
 ---
 
 ## POST /api/suggest_greener  (Person B owns)
@@ -127,6 +148,48 @@ grid + script CO₂ context to each suggestion's `reasoning`.
   "suggestions_accepted": 2
 }
 ```
+
+---
+
+## GET /api/diagnostics
+
+Cheap JSON snapshot for **ops, judges, and hackathon compliance checks**. Does not
+open Snowflake or Databricks SQL (those can hang).
+
+### Response (excerpt)
+
+```json
+{
+  "time": "2026-04-19T12:00:00.000000+00:00",
+  "env": "dev",
+  "integrations": {
+    "eia": {
+      "configured": true,
+      "note": "…"
+    }
+  },
+  "storage": {
+    "sqlite_path": "/abs/path/gridgreen.sqlite",
+    "sqlite_exists": true,
+    "sqlite_size_bytes": 12345,
+    "eia_hourly": {
+      "table_found": true,
+      "row_count": 3600,
+      "distinct_regions": 5,
+      "ts_min_utc": "2026-04-05T00:00:00+00:00",
+      "ts_max_utc": "2026-04-19T00:00:00+00:00",
+      "note": null
+    }
+  },
+  "rag_corpus": { "path": "app/data/hf_corpus.json", "entries": 1 },
+  "embedding_cache": { "path": "…", "exists": false }
+}
+```
+
+`storage.eia_hourly.row_count` is the primary **local** proof that
+`python -m scripts.ingest_eia` has populated SQLite. If `eia_api_key` is
+unset, rows may still exist from the **deterministic mock** series used
+for offline demos.
 
 ---
 

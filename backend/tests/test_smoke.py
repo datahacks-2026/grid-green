@@ -621,6 +621,10 @@ def test_diagnostics_reports_known_keys() -> None:
     # New: SageMaker-produced embedding cache is surfaced even when missing.
     assert "embedding_cache" in body
     assert "path" in body["embedding_cache"]
+    # EIA dataset verification for judges / DataHacks compliance (local SQLite).
+    eia = body["storage"]["eia_hourly"]
+    assert "table_found" in eia
+    assert "row_count" in eia
 
 
 # ---------------------------------------------------------------------------

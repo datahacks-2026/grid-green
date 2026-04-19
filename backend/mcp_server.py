@@ -48,7 +48,7 @@ if HERE not in sys.path:
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
-from app.services import carbon_estimator, forecaster, rag  # noqa: E402
+from app.services import carbon_estimator, forecaster, gemini_service, rag  # noqa: E402
 from app.services.regions import is_supported  # noqa: E402
 from app.services.session_scorecard import get as scorecard_get  # noqa: E402
 
@@ -150,9 +150,10 @@ def estimate_carbon(code: str, region: str = "CISO") -> Dict[str, Any]:
 def suggest_greener(code: str) -> Dict[str, Any]:
     """Suggest greener model alternatives for any HuggingFace models referenced in `code`.
 
-    Uses a curated corpus of ~30 size/quality-paired models; returns up to
-    three swap suggestions per detected model with carbon-savings %,
-    performance-retained %, citation, and one-line reasoning.
+    Uses a curated corpus of ~57 size/quality-paired models; returns up to
+    three swap suggestions per detected model with compute-reduction %,
+    performance-retained %, citation, and Gemini-polished reasoning (when
+    GEMINI_API_KEY is set).
     """
     suggestions = rag.suggest(code, top_k=3)
     return {
@@ -164,7 +165,7 @@ def suggest_greener(code: str) -> Dict[str, Any]:
                 "carbon_saved_pct": s.carbon_saved_pct,
                 "performance_retained_pct": s.performance_retained_pct,
                 "citation": s.citation,
-                "reasoning": s.reasoning,
+                "reasoning": gemini_service.polish_reasoning_paragraph(s.reasoning),
             }
             for s in suggestions
         ]

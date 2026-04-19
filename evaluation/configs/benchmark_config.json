@@ -1,0 +1,67 @@
+{
+  "region": "CISO",
+  "top_k_suggestions": 3,
+  "output_dir": "evaluation/runs",
+  "workloads": [
+    {
+      "id": "llm_flan_xxl",
+      "group": "llm",
+      "path": "evaluation/workloads/llm_flan_xxl.py"
+    },
+    {
+      "id": "llm_llama_70b",
+      "group": "llm",
+      "path": "evaluation/workloads/llm_llama_70b.py"
+    },
+    {
+      "id": "llm_qwen_72b",
+      "group": "llm",
+      "path": "evaluation/workloads/llm_qwen_72b.py"
+    },
+    {
+      "id": "llm_gpt4_turbo_api",
+      "group": "llm",
+      "path": "evaluation/workloads/llm_gpt4_turbo_api.py"
+    },
+    {
+      "id": "llm_mixtral_8x7b",
+      "group": "llm",
+      "path": "evaluation/workloads/llm_mixtral_8x7b.py"
+    },
+    {
+      "id": "llm_gemma_27b",
+      "group": "llm",
+      "path": "evaluation/workloads/llm_gemma_27b.py"
+    },
+    {
+      "id": "classical_rf_2000",
+      "group": "classical_ml",
+      "path": "evaluation/workloads/classical_rf_2000.py"
+    },
+    {
+      "id": "classical_xgboost_500",
+      "group": "classical_ml",
+      "path": "evaluation/workloads/classical_xgboost_500.py"
+    },
+    {
+      "id": "classical_logreg",
+      "group": "classical_ml",
+      "path": "evaluation/workloads/classical_logreg.py"
+    },
+    {
+      "id": "vision_vit_large",
+      "group": "vision_audio",
+      "path": "evaluation/workloads/vision_vit_large.py"
+    },
+    {
+      "id": "audio_whisper_large",
+      "group": "vision_audio",
+      "path": "evaluation/workloads/audio_whisper_large.py"
+    },
+    {
+      "id": "unknown_custom_model",
+      "group": "fallback",
+      "path": "evaluation/workloads/unknown_custom_model.py"
+    }
+  ]
+}

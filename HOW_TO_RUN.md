@@ -100,6 +100,44 @@ source ../.venv/bin/activate
 python -m scripts.ingest_eia --days 14
 ```
 
+### Verify EIA data landed (dataset / judge check)
+
+Still **from `backend/`**, after ingest:
+
+```bash
+sqlite3 data/gridgreen.sqlite "SELECT COUNT(*) AS rows, COUNT(DISTINCT region_code) AS regions, MIN(ts_utc), MAX(ts_utc) FROM eia_hourly;"
+```
+
+With the API running, open **`GET /api/diagnostics`** (e.g.
+`http://127.0.0.1:8000/api/diagnostics`) and confirm
+`storage.eia_hourly.table_found` is **true** and **`row_count` > 0**.
+
+Or with `curl` + `jq` (copy-pasteable):
+
+```bash
+curl -s http://127.0.0.1:8000/api/diagnostics | jq '.storage.eia_hourly'
+```
+
+Expected output after a successful ingest:
+
+```json
+{
+  "table_found": true,
+  "row_count": 3600,
+  "distinct_regions": 5,
+  "ts_min_utc": "2026-04-05T00:00:00+00:00",
+  "ts_max_utc": "2026-04-19T00:00:00+00:00",
+  "note": null
+}
+```
+
+From the **repository root**, you can run an automated pre-flight before
+recording a demo or opening a PR:
+
+```bash
+./scripts/verify_demo_readiness.sh
+```
+
 ### Start the API
 
 Still **from `backend/`**:

@@ -21,7 +21,7 @@ export function SuggestionCard({ suggestion, onApply }: Props) {
           line {suggestion.line}
         </span>
         <span className="text-xs text-ash">
-          -{suggestion.carbon_saved_pct}% CO₂ · {suggestion.performance_retained_pct}% perf
+          −{suggestion.carbon_saved_pct}% compute · {suggestion.performance_retained_pct}% perf
         </span>
       </header>
 
