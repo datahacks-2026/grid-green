@@ -219,6 +219,43 @@ export default function RunAnalysisModal({
                   </ul>
                 </div>
               )}
+
+              {(estimate.workload_practices ?? []).length > 0 && (
+                <div className="mt-4">
+                  <p className="mb-2 text-xs uppercase tracking-wider text-gg-muted">
+                    Training &amp; infra practices
+                  </p>
+                  <p className="mb-2 text-[11px] leading-snug text-gg-muted">
+                    High-scope signals (not yet folded into the gCO₂ number) — where ideal
+                    tooling would look beyond model swaps.
+                  </p>
+                  <ul className="space-y-2 text-sm">
+                    {(estimate.workload_practices ?? []).map((w) => (
+                      <li
+                        key={`${w.id}-${w.line}`}
+                        className="rounded border border-white/5 bg-black/25 p-2"
+                      >
+                        <div className="flex flex-wrap items-baseline gap-2">
+                          <span className="font-mono text-xs text-gg-muted">line {w.line}</span>
+                          <span className="font-mono text-xs text-gg-accent">{w.label}</span>
+                          <span
+                            className={
+                              w.impact === "high"
+                                ? "text-xs text-gg-danger"
+                                : w.impact === "medium"
+                                  ? "text-xs text-gg-warn"
+                                  : "text-xs text-gg-accent"
+                            }
+                          >
+                            {w.impact}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs leading-snug text-slate-200">{w.rationale}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </>
           )}
         </div>

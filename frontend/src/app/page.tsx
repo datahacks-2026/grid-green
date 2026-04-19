@@ -101,6 +101,14 @@ export default function Home() {
 
       // Phase 2 — optional enrichments (RAG + NOAA + Scripps). Each is
       // best-effort: a NOAA 502 or empty corpus must not break the chart.
+      const focusLines = new Set<number>();
+      for (const p of est.detected_patterns) {
+        if (p.impact === "high") focusLines.add(p.line);
+      }
+      for (const w of est.workload_practices ?? []) {
+        if (w.impact === "high") focusLines.add(w.line);
+      }
+
       const [sugRes, wxRes, heatRes] = await Promise.allSettled([
         api.suggestGreener({
           code: analysisPayload,
@@ -110,9 +118,7 @@ export default function Home() {
           current_gco2_kwh: win.current_gco2_kwh,
           optimal_window_start: win.optimal_start,
           co2_savings_pct_window: win.co2_savings_pct,
-          impact_focus_lines: est.detected_patterns
-            .filter((p) => p.impact === "high")
-            .map((p) => p.line),
+          impact_focus_lines: [...focusLines].sort((a, b) => a - b),
         }),
         api.weather(region),
         api.campusHeat(),

@@ -25,6 +25,11 @@ The query is the union of model ids extracted from the user's code plus
 their associated tag context. The result set is filtered to entries whose
 target is *smaller* than the source (otherwise we'd suggest swapping a
 small model for a bigger one) and deduped by `(from, to)`.
+
+When no corpus row matches, ``app.services.hf_hub_models`` may call the
+public Hugging Face Hub model API (``safetensors`` totals + ``pipeline_tag``)
+to propose a smaller sentence-embedding checkpoint without editing
+``hf_corpus.json`` (disable with ``GRIDGREEN_DISABLE_HF_HUB=1``).
 """
 
 from __future__ import annotations
@@ -33,14 +38,16 @@ import ast
 import json
 import logging
 import os
-import re
 import threading
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+
+from app.services import hf_hub_models
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +104,7 @@ class RagIndex:
         self._matrix = None
         self._st_model = None  # sentence-transformers model, lazy
         self._st_matrix = None
+        self._st_init_started = False
         self._loaded = False
 
     def _ensure_loaded(self) -> None:
@@ -127,51 +135,63 @@ class RagIndex:
             self._matrix = self._vectorizer.fit_transform(docs)
             logger.info("RAG index built: %d entries (TF-IDF)", len(self._entries))
 
-            # Best-effort upgrade to sentence-transformers. If Hugging Face is
-            # unreachable (corporate proxy, air-gapped CI, etc.) this must fail
-            # *fast* and fall back to TF-IDF — otherwise the first suggest_greener
-            # call can exceed the FastAPI request timeout.
-            if os.environ.get("GRIDGREEN_DISABLE_ST", "").strip().lower() in {
-                "1",
-                "true",
-                "yes",
-            }:
-                logger.info("sentence-transformers disabled via GRIDGREEN_DISABLE_ST")
-            else:
-                try:
-                    from sentence_transformers import SentenceTransformer  # type: ignore
-                except Exception as exc:  # noqa: BLE001
-                    logger.info("sentence-transformers not importable (%s)", exc)
-                else:
-                    model_name = os.environ.get(
-                        "GRIDGREEN_ST_MODEL",
-                        "sentence-transformers/all-MiniLM-L6-v2",
-                    ).strip()
-                    if not model_name:
-                        logger.info("GRIDGREEN_ST_MODEL empty — skipping ST upgrade")
-                    else:
-                        try:
-                            os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "8")
-                            os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "8")
-
-                            self._st_model = SentenceTransformer(model_name)
-                            self._st_matrix = self._st_model.encode(
-                                docs,
-                                normalize_embeddings=True,
-                                show_progress_bar=False,
-                            )
-                            logger.info(
-                                "RAG upgraded to sentence-transformers (%s)", model_name
-                            )
-                        except Exception as exc:  # noqa: BLE001
-                            self._st_model = None
-                            self._st_matrix = None
-                            logger.warning(
-                                "sentence-transformers init failed (%s); using TF-IDF only",
-                                exc,
-                            )
+            # Run sentence-transformers init in the background so the first
+            # request never blocks on model downloads/network retries.
+            self._start_st_init_background(docs)
 
             self._loaded = True
+
+    def _start_st_init_background(self, docs: List[str]) -> None:
+        if self._st_init_started:
+            return
+        self._st_init_started = True
+
+        if os.environ.get("GRIDGREEN_DISABLE_ST", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }:
+            logger.info("sentence-transformers disabled via GRIDGREEN_DISABLE_ST")
+            return
+
+        model_name = os.environ.get(
+            "GRIDGREEN_ST_MODEL",
+            "sentence-transformers/all-MiniLM-L6-v2",
+        ).strip()
+        if not model_name:
+            logger.info("GRIDGREEN_ST_MODEL empty — skipping ST upgrade")
+            return
+
+        def _load() -> None:
+            try:
+                from sentence_transformers import SentenceTransformer  # type: ignore
+            except Exception as exc:  # noqa: BLE001
+                logger.info("sentence-transformers not importable (%s)", exc)
+                return
+
+            try:
+                os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "3")
+                os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "3")
+                self._st_model = SentenceTransformer(model_name)
+                self._st_matrix = self._st_model.encode(
+                    docs,
+                    normalize_embeddings=True,
+                    show_progress_bar=False,
+                )
+                logger.info("RAG upgraded to sentence-transformers (%s)", model_name)
+            except Exception as exc:  # noqa: BLE001
+                self._st_model = None
+                self._st_matrix = None
+                logger.warning(
+                    "sentence-transformers init failed (%s); using TF-IDF only",
+                    exc,
+                )
+
+        threading.Thread(
+            target=_load,
+            name="rag-st-init",
+            daemon=True,
+        ).start()
 
     # ------------------------------------------------------------------
     # Query
@@ -230,6 +250,32 @@ class RagIndex:
                 )
                 if len([s for s in suggestions if s.line == line]) >= top_k:
                     break
+
+            # Live Hugging Face Hub metadata when the corpus has no exact `from`
+            # match for this hit (embedding-class models only; see hf_hub_models).
+            n_on_line = len([s for s in suggestions if s.line == line])
+            if n_on_line == 0:
+                plan = hf_hub_models.plan_embedding_downgrade_from_hub(
+                    line, snippet, model_id
+                )
+                if plan is not None:
+                    dyn_to = hf_hub_models.EMBEDDING_FALLBACK_MODEL_ID
+                    dkey = (model_id.lower(), dyn_to.lower())
+                    if dkey not in seen:
+                        seen.add(dkey)
+                        suggestions.append(
+                            Suggestion(
+                                line=plan.line,
+                                original_snippet=plan.original_snippet,
+                                alternative_snippet=plan.alternative_snippet,
+                                carbon_saved_pct=plan.carbon_saved_pct,
+                                performance_retained_pct=plan.performance_retained_pct,
+                                citation=plan.citation,
+                                reasoning=_reasoning_with_part_a(
+                                    plan.reasoning, line, context
+                                ),
+                            )
+                        )
 
         return suggestions
 
@@ -422,6 +468,33 @@ _BEDROCK_VENDOR_PREFIXES = (
     "mistral.", "stability.", "deepseek.",
 )
 
+def _looks_like_hf_hub_id(s: str) -> bool:
+    """True for ``namespace/model`` strings typical of Hugging Face Hub ids.
+
+    Unknown orgs (e.g. ``FremyCompany/BioLORD-2023``) are not listed in
+    ``_KNOWN_HF_ORGS`` but are still real model references when passed to
+    ``SentenceTransformer``, ``from_pretrained``, etc.
+
+    Kept conservative: single slash, slug-like segments, and the model
+    segment must look "versioned" (digit, hyphen, or underscore) or be
+    a long tail — avoids common ``type/subtype`` MIME pairs.
+    """
+    if s.count("/") != 1:
+        return False
+    left, right = s.split("/", 1)
+    if len(left) < 2 or len(right) < 2:
+        return False
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", left):
+        return False
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", right):
+        return False
+    if left.lower() in {"http", "https", "file", "git", "ssh", "text", "application"}:
+        return False
+    if any(ch.isspace() for ch in (left + right)):
+        return False
+    return bool(re.search(r"[\d\-_]", right)) or len(right) >= 12
+
+
 # Lower-cased prefixes for bare model names (no org/).
 _KNOWN_MODEL_PREFIXES = (
     "gpt-", "gpt2", "gpt3", "gpt4", "o1-", "o3-", "o4-",
@@ -454,6 +527,8 @@ def _looks_like_model_id(s: str) -> bool:
     if s.endswith((".py", ".json", ".yaml", ".yml", ".txt", ".csv", ".md", ".png", ".jpg")):
         return False
     if any(s.startswith(o) for o in _KNOWN_HF_ORGS):
+        return True
+    if _looks_like_hf_hub_id(s):
         return True
     # Strip Replicate's `:sha` version suffix and Bedrock's `vendor.` prefix
     # before checking against bare-name prefixes so e.g.

@@ -13,6 +13,8 @@ os.environ.setdefault("CORS_ALLOW_ORIGINS", "http://localhost:3000")
 os.environ.setdefault("RATE_LIMIT_PER_MINUTE", "100000")
 # Hugging Face model downloads are flaky in CI / proxied networks — keep RAG on TF-IDF.
 os.environ.setdefault("GRIDGREEN_DISABLE_ST", "1")
+# HF Hub metadata for dynamic embedding swaps is mocked per test; keep off by default.
+os.environ.setdefault("GRIDGREEN_DISABLE_HF_HUB", "1")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -68,6 +70,29 @@ model.fit(x, y, epochs=3, batch_size=16)
     assert body["co2_grams_now"] >= 0
     assert body["confidence"] in {"low", "medium", "high"}
     assert any(p["pattern"] == "from_pretrained" for p in body["detected_patterns"])
+
+
+def test_estimate_carbon_workload_practices_detect_ddp_autocast_compile() -> None:
+    """High-scope v0: advisory AMP / DDP / compile signals alongside CO₂ estimate."""
+    code = (
+        "import torch\n"
+        "from torch.nn.parallel import DistributedDataParallel\n"
+        "m = DistributedDataParallel(m)\n"
+        "with torch.autocast('cuda'):\n"
+        "    pass\n"
+        "m = torch.compile(m)\n"
+    )
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    body = r.json()
+    practices = body.get("workload_practices") or []
+    ids = {p["id"] for p in practices}
+    assert "ddp" in ids
+    assert "autocast" in ids
+    assert "torch_compile" in ids
+    for p in practices:
+        assert p["impact"] in {"low", "medium", "high"}
+        assert "rationale" in p and len(p["rationale"]) > 10
 
 
 def test_estimate_carbon_basic_model_is_not_low_confidence() -> None:
@@ -424,6 +449,41 @@ def test_suggest_greener_detects_assignment_literal() -> None:
     suggestions = r.json()["suggestions"]
     assert suggestions, "expected greener swap for Llama-3-70B literal"
     assert "llama-3-8b" in suggestions[0]["alternative_snippet"].lower()
+
+
+def test_suggest_greener_detects_sentence_transformer_unknown_hf_org(
+    monkeypatch,
+) -> None:
+    """Unknown Hub orgs use live HF metadata (mocked here) when the static corpus
+    has no exact ``from`` row — regression for drug-safety style repos."""
+    from app.services import hf_hub_models
+
+    def _fake_fetch(mid: str) -> hf_hub_models.HubModelBrief | None:
+        if "BioLORD" not in mid:
+            return None
+        return hf_hub_models.HubModelBrief(
+            model_id="FremyCompany/BioLORD-2023",
+            params_b=0.109,
+            pipeline_tag="sentence-similarity",
+            library_name="sentence-transformers",
+            tags=("sentence-transformers", "sentence-similarity", "pytorch"),
+        )
+
+    monkeypatch.setattr(hf_hub_models, "fetch_hub_model_brief", _fake_fetch)
+    hf_hub_models.clear_hub_cache()
+
+    code = (
+        "from sentence_transformers import SentenceTransformer\n"
+        'MODEL_NAME = "FremyCompany/BioLORD-2023"\n'
+        "def _get_model():\n"
+        "    return SentenceTransformer(MODEL_NAME)\n"
+    )
+    r = client.post("/api/suggest_greener", json={"code": code})
+    assert r.status_code == 200
+    suggestions = r.json()["suggestions"]
+    assert suggestions, "expected HF Hub–driven embedding downgrade"
+    assert "minilm" in suggestions[0]["alternative_snippet"].lower()
+    assert "huggingface.co" in suggestions[0]["citation"].lower()
 
 
 def test_suggest_greener_detects_pipeline_kwarg() -> None:

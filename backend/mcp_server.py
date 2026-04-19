@@ -133,6 +133,16 @@ def estimate_carbon(code: str, region: str = "CISO") -> Dict[str, Any]:
             {"line": p.line, "pattern": p.pattern, "impact": p.impact}
             for p in result.detected_patterns
         ],
+        "workload_practices": [
+            {
+                "id": w.id,
+                "line": w.line,
+                "label": w.label,
+                "impact": w.impact,
+                "rationale": w.rationale,
+            }
+            for w in result.workload_practices
+        ],
     }
 
 

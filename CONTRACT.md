@@ -27,9 +27,22 @@ All endpoints are mounted under `/api`.
   "confidence": "low | medium | high",
   "detected_patterns": [
     { "line": 12, "pattern": "model.fit", "impact": "low | medium | high" }
+  ],
+  "workload_practices": [
+    {
+      "id": "autocast",
+      "line": 4,
+      "label": "torch.autocast",
+      "impact": "low | medium | high",
+      "rationale": "One-sentence why this practice matters for energy / throughput."
+    }
   ]
 }
 ```
+
+`workload_practices` may be empty. Each entry is the **first** matching line in the
+script for that practice id (deduped). These are **advisory** signals separate from
+`detected_patterns` (model-load / trainer heuristics).
 
 ---
 

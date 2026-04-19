@@ -19,6 +19,16 @@ class DetectedPattern(BaseModel):
     impact: Impact
 
 
+class WorkloadPractice(BaseModel):
+    """Training / infra signal (AMP, compile, sharding, etc.) — advisory, not in CO₂ math."""
+
+    id: str = Field(..., description="Stable slug, e.g. autocast, fsdp.")
+    line: int
+    label: str = Field(..., description="Short human label shown in UI.")
+    impact: Impact
+    rationale: str = Field(..., description="One sentence — why it matters for energy or wall time.")
+
+
 class EstimateCarbonRequest(BaseModel):
     code: str = Field(..., description="Pasted training script.")
     region: Region = "CISO"
@@ -31,6 +41,10 @@ class EstimateCarbonResponse(BaseModel):
     kwh_estimated: float
     confidence: Confidence
     detected_patterns: List[DetectedPattern]
+    workload_practices: List[WorkloadPractice] = Field(
+        default_factory=list,
+        description="First-seen training & infra optimizations (AMP, compile, sharding, …).",
+    )
 
 
 class CheckGridResponse(BaseModel):

@@ -170,7 +170,16 @@ Cursor (dev speed), Figma, Notion
   "gpu_hours": 2.5,
   "kwh_estimated": 1.8,
   "confidence": "medium",
-  "detected_patterns": [{ "line": 12, "pattern": "model.fit", "impact": "high" }]
+  "detected_patterns": [{ "line": 12, "pattern": "model.fit", "impact": "high" }],
+  "workload_practices": [
+    {
+      "id": "autocast",
+      "line": 4,
+      "label": "torch.autocast",
+      "impact": "high",
+      "rationale": "…"
+    }
+  ]
 }
 ```
 

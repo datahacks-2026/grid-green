@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 _settings = get_settings()
 _forecast_cache = TTLCache(ttl_s=_settings.grid_cache_ttl_s)
+_prophet_usable: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -87,14 +88,19 @@ def forecast_48h(region: str) -> List[Tuple[datetime, float]]:
 
 
 def _prophet_available() -> bool:
+    global _prophet_usable
+    if not _prophet_usable:
+        return False
     try:
         import prophet  # noqa: F401
         return True
     except Exception:
+        _prophet_usable = False
         return False
 
 
 def _prophet_forecast(rows: List[Tuple[datetime, float]]) -> List[Tuple[datetime, float]] | None:
+    global _prophet_usable
     if len(rows) < 48:
         return None
     try:
@@ -129,6 +135,7 @@ def _prophet_forecast(rows: List[Tuple[datetime, float]]) -> List[Tuple[datetime
             for i in range(48)
         ]
     except Exception as exc:  # noqa: BLE001
+        _prophet_usable = False
         logger.warning("Prophet forecast failed (%s); using seasonal-naive", exc)
         return None
 

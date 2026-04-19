@@ -148,7 +148,8 @@ export function RepoAnalyzer({
                 {result.owner}/{result.repo}
               </span>{" "}
               <span className="text-gg-muted">
-                — {result.files_scanned} files scanned, {result.files_with_hits} with model loads
+                — {result.files_scanned} files scanned, {result.files_with_hits} with greener
+                suggestions
               </span>
             </div>
             <span className="font-mono text-gg-accent">
@@ -164,8 +165,13 @@ export function RepoAnalyzer({
 
           {result.files_with_hits === 0 && (
             <p className="rounded-md border border-dashed border-gg-border p-3 text-xs text-gg-muted">
-              No model loads matched the corpus. Try a repo that uses Hugging Face
-              Transformers, OpenAI / Anthropic SDKs, or names a model id explicitly.
+              No supported model ids were detected (or none matched our swap corpus). Works
+              best with Hugging Face{" "}
+              <code className="text-gg-text">from_pretrained</code> /{" "}
+              <code className="text-gg-text">SentenceTransformer</code>, OpenAI / Anthropic
+              SDK calls, or explicit{" "}
+              <code className="text-gg-text">namespace/model</code> hub strings. Pure pandas /
+              API-only repos often have nothing to swap.
             </p>
           )}
 

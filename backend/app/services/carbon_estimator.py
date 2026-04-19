@@ -12,7 +12,7 @@ shape returned matches `EstimateCarbonResponse` in CONTRACT.md.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 
@@ -102,6 +102,8 @@ MODEL_CATALOG: Dict[str, Tuple[float, float, str]] = {
     "wav2vec2-base":   (0.095, 120.0, "audio"),
     # Embeddings
     "all-mpnet-base":  (0.11,   80.0, "embedding"),
+    # Biomedical / domain SBERT-style checkpoints (substring match on full HF id).
+    "biolord":         (0.12,   85.0, "embedding"),
     "all-minilm-l6":   (0.022,  20.0, "embedding"),
     "bge-large":       (0.34,  220.0, "embedding"),
     "bge-small":       (0.033,  30.0, "embedding"),
@@ -159,6 +161,17 @@ class DetectedPatternLite:
     impact: str
 
 
+@dataclass(frozen=True)
+class WorkloadPracticeLite:
+    """Advisory training / infra signal — not folded into kWh math (v0 scope)."""
+
+    id: str
+    line: int
+    label: str
+    impact: str
+    rationale: str
+
+
 @dataclass
 class EstimateResult:
     co2_grams_now: float
@@ -167,6 +180,7 @@ class EstimateResult:
     kwh_estimated: float
     confidence: str
     detected_patterns: List[DetectedPatternLite]
+    workload_practices: List[WorkloadPracticeLite] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +259,8 @@ def estimate(
     co2_now = round(kwh * current_gco2_kwh, 1)
     co2_optimal = round(kwh * optimal_gco2_kwh, 1)
 
+    workload = _detect_workload_practices(code)
+
     return EstimateResult(
         co2_grams_now=co2_now,
         co2_grams_optimal=co2_optimal,
@@ -252,7 +268,115 @@ def estimate(
         kwh_estimated=kwh,
         confidence=confidence,
         detected_patterns=patterns,
+        workload_practices=workload,
     )
+
+
+# ---------------------------------------------------------------------------
+# Workload / infra practices (high-scope advisory layer)
+# ---------------------------------------------------------------------------
+
+# (id, regex, label, impact, rationale) — first match per id wins.
+_WORKLOAD_RULES: List[Tuple[str, re.Pattern, str, str, str]] = [
+    (
+        "fsdp",
+        re.compile(r"\b(?:FullyShardedDataParallel|FSDP)\b"),
+        "FSDP / fully-sharded",
+        "high",
+        "Shards optimizer and weights across GPUs — cuts per-device memory so you can "
+        "train larger models without proportional power on one card (orchestration overhead dominates on tiny jobs).",
+    ),
+    (
+        "ddp",
+        re.compile(r"\bDistributedDataParallel\b"),
+        "DistributedDataParallel",
+        "high",
+        "Data-parallel scaling improves wall-clock; total cluster power rises but work finishes sooner — watch stragglers and idle GPUs.",
+    ),
+    (
+        "flash_attn",
+        re.compile(r"\bflash_attn|FlashAttention|flash_attention_2\b", re.I),
+        "FlashAttention-style kernels",
+        "medium",
+        "Fused attention cuts HBM traffic — often a large win on long-sequence Transformers for the same quality step.",
+    ),
+    (
+        "autocast",
+        re.compile(r"\b(?:torch\.)?autocast\s*\("),
+        "torch.autocast",
+        "high",
+        "Automatic mixed precision lowers memory traffic and usually increases throughput; validate loss scaling / numerics for your task.",
+    ),
+    (
+        "grad_scaler",
+        re.compile(r"\bGradScaler\s*\("),
+        "GradScaler (AMP)",
+        "medium",
+        "Classic AMP pairing with autocast for stable underflow handling in low-precision matmuls.",
+    ),
+    (
+        "torch_compile",
+        re.compile(r"\b(?:torch\.)?compile\s*\("),
+        "torch.compile",
+        "medium",
+        "Graph capture and fusion can shrink steady-state step time after warm-up — measure on your real batch shapes.",
+    ),
+    (
+        "grad_checkpoint",
+        re.compile(
+            r"gradient_checkpointing|enable_gradient_checkpointing|gradient_checkpointing_enable",
+            re.I,
+        ),
+        "Gradient checkpointing",
+        "high",
+        "Recomputes activations to save memory — longer steps but can unlock bigger models or batches on the same GPU budget.",
+    ),
+    (
+        "quantization",
+        re.compile(r"load_in_4bit|load_in_8bit|BitsAndBytesConfig|\bbnb\b", re.I),
+        "bitsandbytes / load_in_4bit|8bit",
+        "high",
+        "Low-bit weights shrink memory and data movement; re-check accuracy and latency on your eval suite.",
+    ),
+    (
+        "dataparallel",
+        re.compile(r"\bDataParallel\s*\("),
+        "nn.DataParallel",
+        "low",
+        "Single-process multi-GPU is often inefficient; prefer DistributedDataParallel for better scaling and power proportionality.",
+    ),
+    (
+        "matmul_precision",
+        re.compile(r"set_float32_matmul_precision\s*\("),
+        "set_float32_matmul_precision",
+        "low",
+        "TensorCore-friendly matmul settings trade ultra-conservative FP32 for throughput on Hopper/Ampere-class GPUs.",
+    ),
+]
+
+
+def _detect_workload_practices(code: str) -> List[WorkloadPracticeLite]:
+    seen: set[str] = set()
+    out: List[WorkloadPracticeLite] = []
+    for idx, raw in enumerate(code.splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        for pid, pattern, label, impact, rationale in _WORKLOAD_RULES:
+            if pid in seen:
+                continue
+            if pattern.search(line):
+                seen.add(pid)
+                out.append(
+                    WorkloadPracticeLite(
+                        id=pid,
+                        line=idx,
+                        label=label,
+                        impact=impact,
+                        rationale=rationale,
+                    )
+                )
+    return out
 
 
 # ---------------------------------------------------------------------------

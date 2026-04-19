@@ -68,7 +68,7 @@ export function SuggestionSidebar({
   );
 
   useEffect(() => {
-    if (!code.trim()) {
+    if (!payload.code.trim()) {
       setSuggestions([]);
       setLoading(false);
       setError(null);

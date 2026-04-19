@@ -32,6 +32,15 @@ export interface DetectedPattern {
   impact: Impact;
 }
 
+/** Training / infra advisory (AMP, compile, sharding, …) — see CONTRACT estimate_carbon. */
+export interface WorkloadPractice {
+  id: string;
+  line: number;
+  label: string;
+  impact: Impact;
+  rationale: string;
+}
+
 export interface EstimateCarbonResponse {
   co2_grams_now: number;
   co2_grams_optimal: number;
@@ -39,6 +48,7 @@ export interface EstimateCarbonResponse {
   kwh_estimated: number;
   confidence: Confidence;
   detected_patterns: DetectedPattern[];
+  workload_practices?: WorkloadPractice[];
 }
 
 export interface CheckGridResponse {

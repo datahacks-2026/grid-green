@@ -167,10 +167,8 @@ Notes:
 
 - `npm run typecheck` should pass.
 - `npm run build` should pass.
-- `npm run lint` runs `next lint` with `eslint-config-next` pinned in
-  `package.json`. If you ever see an interactive first-time ESLint prompt,
-  run `npm run build` once — it also performs “lint + typecheck” as part of
-  the Next build pipeline.
+- `npm run lint` runs ESLint CLI (`eslint . --max-warnings=0`) with a committed
+  `.eslintrc.json`, so it is non-interactive and CI-safe.
 
 Layout note: the App Router lives under **`frontend/src/app/`** (not
 `frontend/app/`).

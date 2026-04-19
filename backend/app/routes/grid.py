@@ -22,6 +22,7 @@ from app.models.schemas import (
     FindCleanWindowResponse,
     ForecastPoint,
     Region,
+    WorkloadPractice,
 )
 from app.services import carbon_estimator, forecaster
 from app.services.limits import limiter
@@ -106,5 +107,15 @@ def estimate_carbon(
         detected_patterns=[
             DetectedPattern(line=p.line, pattern=p.pattern, impact=p.impact)  # type: ignore[arg-type]
             for p in result.detected_patterns
+        ],
+        workload_practices=[
+            WorkloadPractice(
+                id=w.id,
+                line=w.line,
+                label=w.label,
+                impact=w.impact,  # type: ignore[arg-type]
+                rationale=w.rationale,
+            )
+            for w in result.workload_practices
         ],
     )
