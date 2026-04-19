@@ -103,6 +103,7 @@ def diagnostics() -> Dict[str, object]:
             "path": "app/data/hf_corpus.json",
             "entries": _corpus_entry_count(),
         },
+        "embedding_cache": _embedding_cache_status(),
     }
 
 
@@ -114,3 +115,13 @@ def _corpus_entry_count() -> int:
         return len(json.loads(p.read_text()).get("entries", []))
     except Exception:  # noqa: BLE001
         return -1
+
+
+def _embedding_cache_status() -> Dict[str, object]:
+    """Surface the precomputed RAG embedding artifact in diagnostics."""
+    try:
+        from app.services import embedding_cache
+
+        return embedding_cache.cache_status()
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"}

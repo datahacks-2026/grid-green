@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     # Unity Catalog FQN for bronze Delta table (DLT + notebooks read this).
     databricks_bronze_table: str = "gridgreen.raw.eia_raw"
 
+    # Precomputed RAG embedding cache (built by SageMaker / Brev / run_pipeline).
+    # Loaded by `app.services.embedding_cache` at startup.
+    gridgreen_embedding_cache_path: str | None = None
+    gridgreen_embedding_cache_s3_uri: str | None = None
+    gridgreen_embedding_cache_max_age_s: int = 21600  # 6h
+
     @property
     def cors_origins(self) -> List[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]

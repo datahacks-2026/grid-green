@@ -47,7 +47,7 @@ from typing import List, Optional, Tuple
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from app.services import hf_hub_models
+from app.services import embedding_cache, hf_hub_models
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +105,7 @@ class RagIndex:
         self._st_model = None  # sentence-transformers model, lazy
         self._st_matrix = None
         self._st_init_started = False
+        self._cache_meta: Optional[dict] = None
         self._loaded = False
 
     def _ensure_loaded(self) -> None:
@@ -135,13 +136,61 @@ class RagIndex:
             self._matrix = self._vectorizer.fit_transform(docs)
             logger.info("RAG index built: %d entries (TF-IDF)", len(self._entries))
 
+            # If a precomputed embedding cache exists (built by Brev /
+            # SageMaker / the unified pipeline), load the document matrix
+            # straight from disk so we skip the slow encode-on-startup
+            # path. We still need the SBERT model for *query* encoding
+            # later, which is loaded lazily in the background.
+            cache_loaded = self._load_embedding_cache(docs)
+
             # Run sentence-transformers init in the background so the first
-            # request never blocks on model downloads/network retries.
-            self._start_st_init_background(docs)
+            # request never blocks on model downloads/network retries. When
+            # the cache already supplied `_st_matrix`, the loader skips
+            # re-encoding and only initialises the model.
+            self._start_st_init_background(docs, doc_matrix_already_loaded=cache_loaded)
 
             self._loaded = True
 
-    def _start_st_init_background(self, docs: List[str]) -> None:
+    def _load_embedding_cache(self, docs: List[str]) -> bool:
+        """Populate ``self._st_matrix`` from a precomputed cache.
+
+        Returns True when the cache was loaded successfully. The query
+        path still requires the SBERT model (loaded later); when the
+        model isn't importable we fall back to TF-IDF transparently.
+        """
+        try:
+            cache = embedding_cache.load_cache(expected_n_docs=len(docs))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("embedding cache load raised (%s); ignoring", exc)
+            return False
+        if cache is None:
+            return False
+        try:
+            import numpy as np  # transitive sklearn dep
+
+            self._st_matrix = np.asarray(cache.embeddings, dtype=float)
+            self._cache_meta = {
+                "model": cache.model,
+                "device": cache.device,
+                "source_path": cache.source_path,
+                "n_docs": cache.n_docs,
+                "dim": cache.dim,
+            }
+            logger.info(
+                "RAG using cached embeddings (%d x %d) from %s",
+                cache.n_docs, cache.dim, cache.source_path,
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("embedding cache materialise failed (%s); ignoring", exc)
+            return False
+
+    def _start_st_init_background(
+        self,
+        docs: List[str],
+        *,
+        doc_matrix_already_loaded: bool = False,
+    ) -> None:
         if self._st_init_started:
             return
         self._st_init_started = True
@@ -173,17 +222,23 @@ class RagIndex:
                 os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "3")
                 os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "3")
                 self._st_model = SentenceTransformer(model_name)
-                self._st_matrix = self._st_model.encode(
-                    docs,
-                    normalize_embeddings=True,
-                    show_progress_bar=False,
-                )
-                logger.info("RAG upgraded to sentence-transformers (%s)", model_name)
+                if doc_matrix_already_loaded and self._st_matrix is not None:
+                    logger.info(
+                        "RAG: SBERT model loaded for queries (doc matrix from cache)"
+                    )
+                else:
+                    self._st_matrix = self._st_model.encode(
+                        docs,
+                        normalize_embeddings=True,
+                        show_progress_bar=False,
+                    )
+                    logger.info("RAG upgraded to sentence-transformers (%s)", model_name)
             except Exception as exc:  # noqa: BLE001
                 self._st_model = None
-                self._st_matrix = None
+                if not doc_matrix_already_loaded:
+                    self._st_matrix = None
                 logger.warning(
-                    "sentence-transformers init failed (%s); using TF-IDF only",
+                    "sentence-transformers init failed (%s); using TF-IDF for queries",
                     exc,
                 )
 
@@ -192,6 +247,10 @@ class RagIndex:
             name="rag-st-init",
             daemon=True,
         ).start()
+
+    def cache_meta(self) -> Optional[dict]:
+        """Return metadata about the loaded embedding cache, or ``None``."""
+        return self._cache_meta
 
     # ------------------------------------------------------------------
     # Query
@@ -318,8 +377,20 @@ class RagIndex:
                 )
 
         if self._st_model is not None and self._st_matrix is not None:
-            qv = self._st_model.encode([query], normalize_embeddings=True)
-            return (self._st_matrix @ qv.T).flatten()
+            try:
+                qv = self._st_model.encode([query], normalize_embeddings=True)
+                return (self._st_matrix @ qv.T).flatten()
+            except (ValueError, TypeError) as exc:
+                # Cached doc matrix dim doesn't match the loaded SBERT model's
+                # output dim (e.g. someone hand-rolled a different cache).
+                # Drop the cache and fall back to TF-IDF for this request;
+                # the next refresh will overwrite the artifact.
+                logger.warning(
+                    "embedding cache produced incompatible shape (%s); "
+                    "discarding and falling back to TF-IDF",
+                    exc,
+                )
+                self._st_matrix = None
 
         assert self._vectorizer is not None and self._matrix is not None
         qv = self._vectorizer.transform([query])

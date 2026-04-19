@@ -29,7 +29,7 @@ cd backend
 python -m scripts.export_eia_hourly_to_databricks_csv
 ```
 
-Upload the generated CSV to **DBFS** or **Volumes**, then use **Cell 4** in the notebook (set `CSV_PATH`).
+Upload the generated CSV with `python -m scripts.upload_eia_export_to_databricks` (tries **Unity Catalog volume** paths via the Files API first, then legacy DBFS). Set `DATABRICKS_UC_VOLUME_EXPORT_PATH` or `DATABRICKS_VOLUME_NAME` in `backend/.env` if your workspace blocks `/FileStore`. Then use **Cell 4** in the notebook (set `CSV_PATH` to the same path, e.g. `/Volumes/.../eia_hourly_export.csv` or `dbfs:/...`).
 
 ## 4. Schedule hourly append
 

@@ -618,6 +618,161 @@ def test_diagnostics_reports_known_keys() -> None:
     for k in ("eia", "noaa", "gemini", "snowflake", "databricks_sql", "huggingface"):
         assert k in integrations
     assert body["rag_corpus"]["entries"] >= 1
+    # New: SageMaker-produced embedding cache is surfaced even when missing.
+    assert "embedding_cache" in body
+    assert "path" in body["embedding_cache"]
+
+
+# ---------------------------------------------------------------------------
+# Unified pipeline + embedding cache
+# ---------------------------------------------------------------------------
+
+def test_embedding_cache_status_includes_path() -> None:
+    from app.services import embedding_cache
+
+    status = embedding_cache.cache_status()
+    assert "path" in status
+    assert "exists" in status
+    assert isinstance(status["disabled"], bool)
+
+
+def test_embedding_cache_load_returns_none_when_disabled(monkeypatch) -> None:
+    from app.services import embedding_cache
+
+    monkeypatch.setenv("GRIDGREEN_DISABLE_EMBEDDING_CACHE", "1")
+    assert embedding_cache.load_cache(expected_n_docs=999) is None
+
+
+def test_embedding_cache_round_trip_through_local_pipeline(tmp_path, monkeypatch) -> None:
+    """A minimal cache file written to a temp path is picked up cleanly."""
+    import json as _json
+
+    from app.services import embedding_cache
+
+    payload = {
+        "model": "test-model",
+        "device": "cpu",
+        "n_docs": 2,
+        "doc_ids": ["a->b", "c->d"],
+        "embeddings": [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+    }
+    target = tmp_path / "cache.json"
+    target.write_text(_json.dumps(payload))
+    monkeypatch.setenv("GRIDGREEN_EMBEDDING_CACHE_PATH", str(target))
+    monkeypatch.delenv("GRIDGREEN_DISABLE_EMBEDDING_CACHE", raising=False)
+
+    cache = embedding_cache.load_cache(expected_n_docs=2)
+    assert cache is not None
+    assert cache.n_docs == 2
+    assert cache.dim == 3
+    assert cache.model == "test-model"
+
+
+def test_embedding_cache_size_mismatch_is_rejected(tmp_path, monkeypatch) -> None:
+    import json as _json
+
+    from app.services import embedding_cache
+
+    target = tmp_path / "cache.json"
+    target.write_text(_json.dumps({
+        "model": "x", "device": "cpu", "n_docs": 1, "embeddings": [[0.1]],
+    }))
+    monkeypatch.setenv("GRIDGREEN_EMBEDDING_CACHE_PATH", str(target))
+    monkeypatch.delenv("GRIDGREEN_DISABLE_EMBEDDING_CACHE", raising=False)
+
+    assert embedding_cache.load_cache(expected_n_docs=42) is None
+
+
+def test_run_pipeline_module_imports_and_exposes_main() -> None:
+    """Single entry point sanity check — full execution requires data + AWS."""
+    from scripts import run_pipeline
+
+    assert callable(run_pipeline.main)
+    assert callable(run_pipeline._stage_diagnose)
+    assert callable(run_pipeline._stage_databricks)
+
+
+def test_run_pipeline_databricks_stage_runs_locally(monkeypatch) -> None:
+    """`--databricks=local` does CSV export + local DLT, no Databricks env required."""
+    from scripts import run_pipeline
+
+    # Pretend DATABRICKS_* is not configured so the stage stays in local mode.
+    for var in (
+        "DATABRICKS_SERVER_HOSTNAME",
+        "DATABRICKS_HTTP_PATH",
+        "DATABRICKS_TOKEN",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    detail = run_pipeline._stage_databricks("local")
+    assert "csv" in detail.lower() or "local DLT" in detail
+
+
+def test_upload_candidate_paths_uc_before_filestore(monkeypatch) -> None:
+    from scripts import upload_eia_export_to_databricks as up
+
+    monkeypatch.delenv("DATABRICKS_UC_VOLUME_EXPORT_PATH", raising=False)
+    monkeypatch.delenv("DATABRICKS_VOLUME_NAME", raising=False)
+    monkeypatch.setenv("DATABRICKS_BRONZE_TABLE", "my_catalog.my_schema.eia_raw")
+    monkeypatch.delenv("DATABRICKS_DBFS_EXPORT_PATH", raising=False)
+    paths = up._candidate_remote_paths()
+    assert paths[0].startswith("/Volumes/my_catalog/my_schema/")
+    assert paths[-1] == "/FileStore/gridgreen/eia_hourly_export.csv"
+
+
+def test_upload_candidate_uc_export_path_is_first(monkeypatch) -> None:
+    from scripts import upload_eia_export_to_databricks as up
+
+    monkeypatch.setenv(
+        "DATABRICKS_UC_VOLUME_EXPORT_PATH",
+        "/Volumes/acme/raw/landing/eia_hourly_export.csv",
+    )
+    monkeypatch.setenv("DATABRICKS_BRONZE_TABLE", "gridgreen.raw.eia_raw")
+    paths = up._candidate_remote_paths()
+    assert paths[0] == "/Volumes/acme/raw/landing/eia_hourly_export.csv"
+
+
+def test_upload_candidate_includes_workspace_shared(monkeypatch) -> None:
+    from scripts import upload_eia_export_to_databricks as up
+
+    monkeypatch.delenv("DATABRICKS_UC_VOLUME_EXPORT_PATH", raising=False)
+    monkeypatch.delenv("DATABRICKS_WORKSPACE_EXPORT_PATH", raising=False)
+    monkeypatch.setenv("DATABRICKS_BRONZE_TABLE", "gridgreen.raw.eia_raw")
+    monkeypatch.delenv("DATABRICKS_DBFS_EXPORT_PATH", raising=False)
+    paths = up._candidate_remote_paths()
+    assert "/Workspace/Shared/gridgreen/eia_hourly_export.csv" in paths
+
+
+def test_run_pipeline_databricks_stage_fails_loudly_for_upload_without_env(
+    monkeypatch,
+) -> None:
+    """`--databricks=upload` must raise when the workspace creds are missing."""
+    from scripts import run_pipeline
+
+    for var in (
+        "DATABRICKS_SERVER_HOSTNAME",
+        "DATABRICKS_HTTP_PATH",
+        "DATABRICKS_TOKEN",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    # Reset cached settings so the missing env is observed.
+    from app.config import get_settings
+
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        run_pipeline._stage_databricks("upload")
+
+
+def test_sagemaker_processing_module_imports() -> None:
+    """The launcher must import even without boto3/sagemaker installed."""
+    from scripts import sagemaker_processing
+
+    assert callable(sagemaker_processing.main)
+    assert callable(sagemaker_processing._build_local)
 
 
 def test_analyze_repo_rejects_non_github_url() -> None:
