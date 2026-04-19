@@ -36,12 +36,10 @@ Then restart Claude Desktop. Person B's `/mcp` page shows this same
 snippet to end users.
 """
 
-from __future__ import annotations
-
 import logging
 import os
 import sys
-from typing import Any
+from typing import Any, Dict
 
 # Allow `python mcp_server.py` from backend/.
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -61,7 +59,7 @@ mcp = FastMCP("gridgreen")
 
 
 @mcp.tool()
-def check_grid(region: str = "CISO") -> dict[str, Any]:
+def check_grid(region: str = "CISO") -> Dict[str, Any]:
     """Current carbon intensity (gCO2/kWh) and trend for a US balancing authority.
 
     `region` must be one of: CISO, ERCO, PJM, MISO, NYIS.
@@ -82,7 +80,7 @@ def find_clean_window(
     region: str = "CISO",
     hours_needed: int = 4,
     max_delay_hours: int = 48,
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """Find the cleanest `hours_needed`-hour window in the next `max_delay_hours`.
 
     Returns the optimal start time, expected gCO2/kWh in that window, the
@@ -108,7 +106,7 @@ def find_clean_window(
 
 
 @mcp.tool()
-def estimate_carbon(code: str, region: str = "CISO") -> dict[str, Any]:
+def estimate_carbon(code: str, region: str = "CISO") -> Dict[str, Any]:
     """Estimate the CO2 footprint (grams) of running an ML training script.
 
     Combines a rules-based code analysis (model lookup + GPU/epoch
@@ -138,7 +136,7 @@ def estimate_carbon(code: str, region: str = "CISO") -> dict[str, Any]:
 
 
 @mcp.tool()
-def suggest_greener(code: str) -> dict[str, Any]:
+def suggest_greener(code: str) -> Dict[str, Any]:
     """Suggest greener model alternatives for any HuggingFace models referenced in `code`.
 
     Uses a curated corpus of ~30 size/quality-paired models; returns up to

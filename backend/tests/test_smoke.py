@@ -11,6 +11,8 @@ import os
 os.environ.setdefault("CORS_ALLOW_ORIGINS", "http://localhost:3000")
 # Disable rate limiting noise in tests by raising the cap; doesn't change shapes.
 os.environ.setdefault("RATE_LIMIT_PER_MINUTE", "100000")
+# Hugging Face model downloads are flaky in CI / proxied networks — keep RAG on TF-IDF.
+os.environ.setdefault("GRIDGREEN_DISABLE_ST", "1")
 
 from fastapi.testclient import TestClient  # noqa: E402
 

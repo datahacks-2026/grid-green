@@ -17,3 +17,8 @@ snowflake-connector-python==3.12.4
 
 # W&B for experiment tracking on the Brev workload.
 wandb==0.18.7
+
+# AWS — optional SageMaker Processing launcher (`scripts/sagemaker_processing.py`).
+# Keep out of the baseline requirements so local dev / CI stays lightweight.
+boto3>=1.35.0,<2
+sagemaker==2.257.1

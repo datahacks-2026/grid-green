@@ -23,13 +23,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
 
-import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -118,16 +118,49 @@ class RagIndex:
             self._matrix = self._vectorizer.fit_transform(docs)
             logger.info("RAG index built: %d entries (TF-IDF)", len(self._entries))
 
-            # Best-effort upgrade to sentence-transformers if available.
-            try:
-                from sentence_transformers import SentenceTransformer  # type: ignore
+            # Best-effort upgrade to sentence-transformers. If Hugging Face is
+            # unreachable (corporate proxy, air-gapped CI, etc.) this must fail
+            # *fast* and fall back to TF-IDF — otherwise the first suggest_greener
+            # call can exceed the FastAPI request timeout.
+            if os.environ.get("GRIDGREEN_DISABLE_ST", "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }:
+                logger.info("sentence-transformers disabled via GRIDGREEN_DISABLE_ST")
+            else:
+                try:
+                    from sentence_transformers import SentenceTransformer  # type: ignore
+                except Exception as exc:  # noqa: BLE001
+                    logger.info("sentence-transformers not importable (%s)", exc)
+                else:
+                    model_name = os.environ.get(
+                        "GRIDGREEN_ST_MODEL",
+                        "sentence-transformers/all-MiniLM-L6-v2",
+                    ).strip()
+                    if not model_name:
+                        logger.info("GRIDGREEN_ST_MODEL empty — skipping ST upgrade")
+                    else:
+                        try:
+                            os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "8")
+                            os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "8")
 
-                self._st_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-                self._st_matrix = self._st_model.encode(docs, normalize_embeddings=True)
-                logger.info("RAG upgraded to sentence-transformers (MiniLM)")
-            except Exception:
-                # No-op — TF-IDF path stays primary.
-                pass
+                            self._st_model = SentenceTransformer(model_name)
+                            self._st_matrix = self._st_model.encode(
+                                docs,
+                                normalize_embeddings=True,
+                                show_progress_bar=False,
+                            )
+                            logger.info(
+                                "RAG upgraded to sentence-transformers (%s)", model_name
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            self._st_model = None
+                            self._st_matrix = None
+                            logger.warning(
+                                "sentence-transformers init failed (%s); using TF-IDF only",
+                                exc,
+                            )
 
             self._loaded = True
 
