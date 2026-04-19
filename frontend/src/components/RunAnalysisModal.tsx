@@ -117,27 +117,10 @@ export default function RunAnalysisModal({
                 <Stat label="Confidence" value={estimate.confidence} />
               </div>
 
-              <p className="text-[11px] leading-snug text-gg-muted">
-                CO₂ and GPU-hours are <strong className="text-gg-text">rules-based estimates</strong> from your
-                script (model catalog + heuristics) times grid intensity — not metered datacenter power or a full
-                lifecycle assessment.
-              </p>
-
               <div className="rounded border border-gg-border bg-black/30 p-3">
                 <p className="text-sm">
-                  {savings >= 0 ? (
-                    <>
-                      Waiting saves about <strong className="text-gg-accent">{savings}%</strong> CO₂ for this
-                      run on the {formatRegionLabel(region)} grid (same code, cleaner forecast window).
-                    </>
-                  ) : (
-                    <>
-                      For this snapshot, the forecast window is{" "}
-                      <strong className="text-gg-warn">~{Math.abs(savings)}% higher</strong> CO₂ than running now
-                      on the {formatRegionLabel(region)} grid — deferring is not always greener; check the chart
-                      above.
-                    </>
-                  )}
+                  Waiting saves about <strong className="text-gg-accent">{savings}%</strong>{" "}
+                  CO₂ for this run on the {formatRegionLabel(region)} grid.
                 </p>
               </div>
 

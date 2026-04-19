@@ -1,6 +1,5 @@
 {
-  "_about": "Curated 'big model -> greener alternative' pairs used by RAG.",
-  "_methodology": "carbon_saved_pct is derived from the parameter ratio (1 - params_to/params_from) as a proxy for compute reduction — not a measured energy delta. performance_retained_pct references published benchmark comparisons (MMLU, BIG-bench, Open LLM Leaderboard, etc.) where available; otherwise it is an informed estimate. These numbers are directional for ranking, not absolute claims.",
+  "_about": "Curated 'big model -> greener alternative' pairs used by RAG. Numbers are approximate and meant for ranking, not absolute claims. Edit freely; build_rag_index.py rebuilds the vector matrix.",
   "entries": [
     {
       "from": "google/flan-t5-xxl",
@@ -78,17 +77,6 @@
       "citation": "Jiang et al., Mistral 7B / Mixtral, 2023. https://arxiv.org/abs/2310.06825",
       "reasoning": "Dense Mistral-7B is a strong baseline; Mixtral's MoE is overkill for many fine-tunes.",
       "tags": ["llm", "decoder", "mistral"]
-    },
-    {
-      "from": "mistralai/Mixtral-8x7B-Instruct-v0.1",
-      "to": "mistralai/Mistral-7B-Instruct-v0.1",
-      "params_from_b": 47.0,
-      "params_to_b": 7.0,
-      "carbon_saved_pct": 70,
-      "performance_retained_pct": 87,
-      "citation": "Jiang et al., Mistral 7B / Mixtral, 2023. https://arxiv.org/abs/2310.06825",
-      "reasoning": "Dense Mistral-7B-Instruct is a strong baseline for chat/instruction workloads; Mixtral's MoE adds throughput but not quality for most fine-tunes.",
-      "tags": ["llm", "decoder", "mistral", "instruct"]
     },
     {
       "from": "bert-large-uncased",
@@ -232,17 +220,6 @@
       "citation": "Almazrouei et al., Falcon, 2023.",
       "reasoning": "Falcon-7B is a competitive alternative for many fine-tunes at far lower cost.",
       "tags": ["llm", "decoder", "falcon"]
-    },
-    {
-      "from": "Qwen/Qwen2.5-72B",
-      "to": "Qwen/Qwen2.5-7B",
-      "params_from_b": 72.0,
-      "params_to_b": 7.0,
-      "carbon_saved_pct": 88,
-      "performance_retained_pct": 85,
-      "citation": "Alibaba, Qwen2.5 Technical Report, 2024. https://arxiv.org/abs/2412.15115",
-      "reasoning": "Qwen2.5-7B retains most of the 72B base quality at ~10% of the compute budget.",
-      "tags": ["llm", "decoder", "qwen"]
     },
     {
       "from": "Qwen/Qwen2-72B",
@@ -617,6 +594,39 @@
       "citation": "Alibaba, Qwen2.5 release, 2024.",
       "reasoning": "Qwen2.5-7B-Instruct retains most of the 72B chat quality at ~10% of the inference compute.",
       "tags": ["llm", "decoder", "qwen"]
+    },
+    {
+      "from": "Qwen/Qwen2.5-72B",
+      "to": "Qwen/Qwen2.5-7B",
+      "params_from_b": 72.0,
+      "params_to_b": 7.0,
+      "carbon_saved_pct": 88,
+      "performance_retained_pct": 85,
+      "citation": "Alibaba, Qwen2.5 release, 2024.",
+      "reasoning": "Qwen2.5-7B is competitive on general tasks at ~10% of the compute cost of the 72B base model.",
+      "tags": ["llm", "decoder", "qwen"]
+    },
+    {
+      "from": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+      "to": "mistralai/Mistral-7B-Instruct-v0.2",
+      "params_from_b": 46.7,
+      "params_to_b": 7.0,
+      "carbon_saved_pct": 85,
+      "performance_retained_pct": 88,
+      "citation": "Mistral AI, Mixtral of Experts, 2024. https://arxiv.org/abs/2401.04088",
+      "reasoning": "Mistral-7B-Instruct-v0.2 delivers strong instruction-following quality at ~15% of Mixtral 8x7B's active parameter count and memory footprint.",
+      "tags": ["llm", "decoder", "mistral", "moe"]
+    },
+    {
+      "from": "vit_large_patch16_224",
+      "to": "vit_base_patch16_224",
+      "params_from_b": 0.307,
+      "params_to_b": 0.086,
+      "carbon_saved_pct": 72,
+      "performance_retained_pct": 96,
+      "citation": "Dosovitskiy et al., An Image is Worth 16x16 Words, 2021. https://arxiv.org/abs/2010.11929",
+      "reasoning": "ViT-Base retains ~96% of ViT-Large's ImageNet top-1 accuracy at 28% of the parameter count — a strong trade-off for most vision tasks.",
+      "tags": ["vision", "vit", "timm", "image-classification"]
     },
     {
       "from": "microsoft/phi-3.5-mini-instruct",

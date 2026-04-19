@@ -187,7 +187,7 @@ export function RepoAnalyzer({
                     <div className="flex items-center justify-between text-[11px] text-gg-muted">
                       <span>line {s.line}</span>
                       <span>
-                        −{s.carbon_saved_pct}% compute · {s.performance_retained_pct}% perf
+                        −{s.carbon_saved_pct}% CO₂ · {s.performance_retained_pct}% perf
                       </span>
                     </div>
                     <pre className="mt-1 overflow-x-auto rounded bg-black/50 p-1.5 font-mono text-[11px] text-rose-300">

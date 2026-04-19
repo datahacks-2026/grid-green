@@ -100,44 +100,6 @@ source ../.venv/bin/activate
 python -m scripts.ingest_eia --days 14
 ```
 
-### Verify EIA data landed (dataset / judge check)
-
-Still **from `backend/`**, after ingest:
-
-```bash
-sqlite3 data/gridgreen.sqlite "SELECT COUNT(*) AS rows, COUNT(DISTINCT region_code) AS regions, MIN(ts_utc), MAX(ts_utc) FROM eia_hourly;"
-```
-
-With the API running, open **`GET /api/diagnostics`** (e.g.
-`http://127.0.0.1:8000/api/diagnostics`) and confirm
-`storage.eia_hourly.table_found` is **true** and **`row_count` > 0**.
-
-Or with `curl` + `jq` (copy-pasteable):
-
-```bash
-curl -s http://127.0.0.1:8000/api/diagnostics | jq '.storage.eia_hourly'
-```
-
-Expected output after a successful ingest:
-
-```json
-{
-  "table_found": true,
-  "row_count": 3600,
-  "distinct_regions": 5,
-  "ts_min_utc": "2026-04-05T00:00:00+00:00",
-  "ts_max_utc": "2026-04-19T00:00:00+00:00",
-  "note": null
-}
-```
-
-From the **repository root**, you can run an automated pre-flight before
-recording a demo or opening a PR:
-
-```bash
-./scripts/verify_demo_readiness.sh
-```
-
 ### Start the API
 
 Still **from `backend/`**:
@@ -244,31 +206,102 @@ source ../.venv/bin/activate
 python -m scripts.dlt_pipeline
 ```
 
-### Brev / embeddings workload (+ optional W&B)
+### Unified pipeline (recommended) — `python -m scripts.run_pipeline`
+
+One command to take a fresh checkout from "no data" to "FastAPI ready
+to serve". Four stages, in order:
+
+1. **ingest** — `scripts.ingest_eia` writes EIA → `backend/data/gridgreen.sqlite`
+   (auto-mirrors to Snowflake when `SNOWFLAKE_*` is configured).
+2. **build cache** — encodes `hf_corpus.json` and writes
+   `backend/data/rag_embeddings.json` (default: locally; or via SageMaker).
+3. **databricks** — exports `eia_hourly` → `backend/data/exports/eia_hourly_export.csv`,
+   uploads to DBFS when `DATABRICKS_*` is configured, and runs the
+   `dlt_pipeline.run_local()` bronze→silver→gold equivalent in pandas
+   so SQLite gets the `eia_gold_carbon_24h_ma` table.
+4. **diagnose** — prints SQLite size, embedding-cache stats, CSV export
+   path, and the integration flag summary.
 
 ```bash
 cd backend
 source ../.venv/bin/activate
-pip install -r ../backend/requirements-extras.txt   # if not already
-python -m scripts.brev_embed
+
+# Default: full pipeline (ingest 30d + local embed cache + CSV/DBFS/DLT + report).
+python -m scripts.run_pipeline
+
+# Cache built on Amazon SageMaker, downloaded to backend/data/ when ready.
+python -m scripts.run_pipeline --cache sagemaker
+
+# Refresh embeddings only (no ingest, no Databricks artifacts).
+python -m scripts.run_pipeline --skip-ingest --databricks skip
+
+# Force the upload to fail loudly if DATABRICKS_* isn't configured.
+python -m scripts.run_pipeline --databricks upload
+
+# Pipeline-only, no embedding work, but still refresh the warehouse layer.
+python -m scripts.run_pipeline --cache skip
 ```
 
-### AWS SageMaker Processing (optional — sponsor / credits story)
+The pipeline is the integration point — Snowflake mirroring, Databricks
+DBFS upload, Brev / W&B logging, and the SageMaker cache build are all
+opt-in via env vars but share one data path.
 
-This launches a tiny **SageMaker ProcessingJob** that reads the bundled HF corpus
-JSON from S3, prints a summary, and writes `summary.json` back to S3. It is
-**not** wired into the FastAPI runtime.
+**Databricks knobs (`--databricks ...`):**
 
-Prereqs:
+| Mode | CSV export | DBFS upload | Local DLT (pandas) | Notes |
+|------|------------|-------------|--------------------|-------|
+| `auto` (default) | yes | if `DATABRICKS_SERVER_HOSTNAME` + `DATABRICKS_TOKEN` set | yes | tries UC ``/Volumes/...`` paths first (Files API), then legacy DBFS |
+| `local` | yes | no | yes | useful when you don't have a workspace |
+| `upload` | yes | required | yes | hard-fails if env is missing |
+| `skip` | no | no | no | leaves the warehouse layer untouched |
 
-- AWS credentials with `sagemaker:CreateProcessingJob` + S3 read/write + IAM PassRole
-- Fill `SAGEMAKER_*` vars in `backend/.env` (see `.env.example`)
+### RAG embedding cache — what / where / why
+
+The FastAPI runtime loads precomputed document embeddings from
+`backend/data/rag_embeddings.json` at startup (see
+`app/services/embedding_cache.py`). When the file is present, the RAG
+service skips re-encoding the entire corpus; SBERT is only loaded for
+*query* encoding. When the file is missing, behaviour is unchanged
+(live SBERT on first request, with TF‑IDF fallback).
+
+Three ways to produce the cache:
+
+1. **Locally** (default — fastest for dev):
+   `python -m scripts.run_pipeline` (or `python -m scripts.sagemaker_processing --local`)
+2. **On Brev / a GPU box** (sponsor evidence + W&B chart):
+   `python -m scripts.brev_embed`
+3. **On Amazon SageMaker Processing** (cloud, sponsor / credits story):
+   `python -m scripts.sagemaker_processing --download`
+   The job runs `sagemaker_processing_entry.py` in the official
+   scikit-learn processing container, encodes the corpus with SBERT
+   (or TF‑IDF fallback), and emits `rag_embeddings.json` +
+   `summary.json` to your S3 output prefix. With `--download` the
+   launcher mirrors the artifact back to `backend/data/`.
+
+Optional S3 mirror — set `GRIDGREEN_EMBEDDING_CACHE_S3_URI=s3://bucket/path/rag_embeddings.json`
+and the runtime will pull a fresh copy from S3 at startup if the local
+mirror is older than `GRIDGREEN_EMBEDDING_CACHE_MAX_AGE_S` seconds
+(default 6h). Set `GRIDGREEN_DISABLE_EMBEDDING_CACHE=1` to force live
+encoding (useful for benchmarking or when the artifact is suspect).
+
+### AWS SageMaker Processing — direct controls
+
+Prereqs: AWS credentials with `sagemaker:CreateProcessingJob` + S3
+read/write + `iam:PassRole`; fill `SAGEMAKER_*` vars in `backend/.env`.
 
 ```bash
 cd backend
 source ../.venv/bin/activate
 pip install -r ../backend/requirements-extras.txt
-python -m scripts.sagemaker_processing --wait
+
+# Submit, wait, and download rag_embeddings.json into backend/data/.
+python -m scripts.sagemaker_processing --download
+
+# Submit, return immediately (artifact stays in S3 until you download).
+python -m scripts.sagemaker_processing
+
+# Local dry run (no AWS call, same code path that runs in the container).
+python -m scripts.sagemaker_processing --local
 ```
 
 ### Snowflake Cortex upload (optional)
@@ -369,8 +402,12 @@ python -m scripts.build_rag_index --target snowflake
 ### Tooling / integration files
 
 - **`backend/mcp_server.py`**: MCP tools mirroring the HTTP service layer
+- **`backend/scripts/run_pipeline.py`**: unified one-command pipeline (ingest → cache → diagnose)
 - **`backend/scripts/dlt_pipeline.py`**: Databricks DLT definition + local fallback runner
 - **`backend/scripts/brev_embed.py`**: GPU embedding workload + optional W&B logging
+- **`backend/scripts/sagemaker_processing.py`**: SageMaker Processing launcher (cache builder)
+- **`backend/scripts/sagemaker_processing_entry.py`**: in-container entry that writes `rag_embeddings.json`
+- **`backend/app/services/embedding_cache.py`**: runtime loader for the precomputed cache (S3 mirror aware)
 - **`render.yaml`**: Render blueprint skeleton
 
 ---

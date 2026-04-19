@@ -174,12 +174,12 @@ S4 (combined). Full methodology in `evaluation/README.md`; latest report in
 | Metric | Value |
 |---|---|
 | Success rate | **100%** (12/12 workloads) |
-| Mean analysis latency | **0.70s** |
+| Mean analysis latency | **<20ms** (in-process benchmark) |
 | Suggestion coverage | **66.7%** of workloads receive ≥1 swap |
-| S2 model-swap reduction (LLMs) | **70.1%** estimated CO₂ |
+| S2 model-swap reduction (LLMs) | **54.9%** estimated CO₂ |
 | S2 model-swap reduction (Vision/Audio) | **57.1%** estimated CO₂ |
-| S2 model-swap reduction (overall) | **44.6%** estimated CO₂ |
-| Avg claimed compute reduction | **75.5%** (parameter-ratio proxy) |
+| S2 model-swap reduction (overall) | **37.0%** estimated CO₂ |
+| Avg claimed compute reduction | **77.6%** (parameter-ratio proxy) |
 
 **Honest caveats:**
 - S3 time-shift numbers depend on the grid snapshot at benchmark time;

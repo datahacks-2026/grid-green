@@ -15,7 +15,7 @@ Available as a web app (Monaco editor + analysis UI) and as an MCP server for AI
 ## Features
 
 - **Carbon estimation** — Paste any ML script; get estimated CO₂, GPU-hours, and kWh based on detected models, epochs, and batch size. Every response includes a `methodology` block with scaling-law citations and stated limitations.
-- **Model-swap suggestions** — RAG-backed recommendations to swap large models for smaller, greener alternatives with cited benchmark retention (e.g. flan-t5-xxl → flan-t5-large: −85% compute, 94% MMLU retained). 57 curated model pairs covering LLMs, vision, audio, and classical ML.
+- **Model-swap suggestions** — RAG-backed recommendations to swap large models for smaller, greener alternatives with cited benchmark retention (e.g. flan-t5-xxl → flan-t5-large: −85% compute, 94% MMLU retained). 58 curated model pairs covering LLMs, vision, audio, and classical ML.
 - **Grid-aware scheduling** — 48-hour carbon intensity forecast from EIA data; find the cleanest window to run your workload.
 - **Workload practice detection** — Identifies training patterns like AMP, FSDP, gradient checkpointing, `torch.compile`, quantization.
 - **MCP server** — Full parity with the HTTP API, including Gemini-polished reasoning. Works with Claude Desktop, Cursor, and Claude Code.
@@ -155,12 +155,12 @@ A self-evaluation harness in `evaluation/` runs 12 workloads across 4 scenarios.
 | Metric | Value |
 |---|---|
 | Success rate | **100%** (12/12 workloads) |
-| Mean analysis latency | **0.70s** |
+| Mean analysis latency | **<20ms** (in-process benchmark) |
 | Suggestion coverage | **66.7%** of workloads receive ≥1 swap |
-| Model-swap CO₂ reduction (LLMs) | **70.1%** |
+| Model-swap CO₂ reduction (LLMs) | **54.9%** |
 | Model-swap CO₂ reduction (Vision/Audio) | **57.1%** |
-| Model-swap CO₂ reduction (overall) | **44.6%** |
-| Avg compute reduction per suggestion | **75.5%** |
+| Model-swap CO₂ reduction (overall) | **37.0%** |
+| Avg compute reduction per suggestion | **77.6%** |
 
 Run the benchmark yourself:
 
@@ -181,7 +181,7 @@ GridGreen estimates are **rules-based and directional** — not metered datacent
 
 **How it works:**
 1. **Model detection** — AST + regex to find `from_pretrained`, `create_model`, `model.fit`, training loops, etc.
-2. **Parameter lookup** — Curated catalog of ~57 model pairs with parameter counts.
+2. **Parameter lookup** — Curated catalog of ~58 model pairs with parameter counts.
 3. **FLOPs → energy scaling** — Based on published scaling laws:
    - [Patterson et al., 2022](https://arxiv.org/abs/2104.10350) — Carbon Emissions and Large Neural Network Training
    - [Kaplan et al., 2020](https://arxiv.org/abs/2001.08361) — Scaling Laws for Neural Language Models

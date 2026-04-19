@@ -291,7 +291,7 @@ class RagIndex:
                 # Don't recommend a swap the user already applied.
                 if _ids_match(model_id, entry.to_model):
                     continue
-                key = (line, model_id.lower(), entry.to_model.lower())
+                key = (model_id.lower(), entry.to_model.lower())
                 if key in seen:
                     continue
                 seen.add(key)
@@ -300,10 +300,7 @@ class RagIndex:
                     Suggestion(
                         line=line,
                         original_snippet=snippet,
-                        alternative_snippet=_swap(
-                            snippet, entry.from_model, entry.to_model,
-                            detected_id=model_id,
-                        ),
+                        alternative_snippet=_swap(snippet, entry.from_model, entry.to_model),
                         carbon_saved_pct=entry.carbon_saved_pct,
                         performance_retained_pct=entry.performance_retained_pct,
                         citation=entry.citation,
@@ -322,7 +319,7 @@ class RagIndex:
                 )
                 if plan is not None:
                     dyn_to = hf_hub_models.EMBEDDING_FALLBACK_MODEL_ID
-                    dkey = (line, model_id.lower(), dyn_to.lower())
+                    dkey = (model_id.lower(), dyn_to.lower())
                     if dkey not in seen:
                         seen.add(dkey)
                         suggestions.append(
@@ -344,16 +341,12 @@ class RagIndex:
     def _rank(self, query: str) -> List[Tuple[CorpusEntry, float]]:
         sims = self._similarity_scores(query)
 
+        # Strong boost for exact substring match against `from` model id.
         boosted = []
         q_lower = query.lower()
-        q_norm = q_lower.replace("_", "-").split("/")[-1]
         for i, e in enumerate(self._entries):
             score = float(sims[i])
-            f_lower = e.from_model.lower()
-            f_norm = f_lower.replace("_", "-").split("/")[-1]
-            if f_lower in q_lower or q_lower in f_lower:
-                score += 1.0
-            elif f_norm in q_norm or q_norm in f_norm:
+            if e.from_model.lower() in q_lower or q_lower in e.from_model.lower():
                 score += 1.0
             boosted.append((e, score))
 
@@ -674,6 +667,31 @@ def _extract_model_hits(code: str) -> List[Tuple[int, str, str]]:
         _add(line_no, snippet, candidate)
     for line_no, snippet, candidate in _extract_via_regex(code):
         _add(line_no, snippet, candidate)
+
+    # Suppress tokenizer/processor hits when the same model_id appears in a
+    # model-loading line (AutoModel*, from_pretrained on a model class, etc.).
+    # Without this, `AutoTokenizer.from_pretrained("gpt2")` on line 2 beats
+    # `AutoModelForCausalLM.from_pretrained("gpt2")` on line 3 and the swap
+    # suggestion targets the tokenizer line instead of the model line.
+    _TOKENIZER_ONLY_RE = re.compile(r"\bAutoTokenizer\b|\bAutoProcessor\b", re.IGNORECASE)
+    _MODEL_LOAD_RE = re.compile(
+        r"\b(?:AutoModel[A-Za-z]*|from_pretrained|pipeline)\s*\(", re.IGNORECASE
+    )
+    model_id_has_model_line: set[str] = {
+        m_id.lower()
+        for _, snip, m_id in hits
+        if _MODEL_LOAD_RE.search(snip) and not _TOKENIZER_ONLY_RE.search(snip)
+    }
+    if model_id_has_model_line:
+        hits = [
+            (ln, snip, m_id)
+            for ln, snip, m_id in hits
+            if not (
+                _TOKENIZER_ONLY_RE.search(snip)
+                and m_id.lower() in model_id_has_model_line
+            )
+        ]
+
     return hits
 
 
@@ -983,29 +1001,13 @@ def _ids_match(a: str, b: str) -> bool:
     return _contained(na, nb)
 
 
-def _swap(snippet: str, old: str, new: str, *, detected_id: str = "") -> str:
-    """Case-insensitive substring swap that preserves the original quote chars.
-
-    When the corpus ``from`` (``old``) doesn't appear literally in the snippet
-    (e.g. the user wrote ``Qwen/Qwen2.5-72B`` but the corpus entry is
-    ``Qwen/Qwen2.5-72B-Instruct``, or timm uses ``vit_large_patch16_224``
-    while the corpus says ``google/vit-large-patch16-224``), we fall back to
-    replacing the *detected* model id (``detected_id``) — the string actually
-    in the code — with the corpus ``to`` model, stripping the ``to`` org
-    prefix when the detected id was bare (no ``/``).
-    """
+def _swap(snippet: str, old: str, new: str) -> str:
+    # Case-insensitive substring swap that preserves the original quote
+    # characters in the snippet.
     pattern = re.compile(re.escape(old), re.IGNORECASE)
     if pattern.search(snippet):
         return pattern.sub(new, snippet, count=1)
-
-    if detected_id:
-        det_pat = re.compile(re.escape(detected_id), re.IGNORECASE)
-        if det_pat.search(snippet):
-            target = new
-            if "/" not in detected_id and "/" in new:
-                target = new.split("/", 1)[-1]
-            return det_pat.sub(target, snippet, count=1)
-
+    # Fallback: just append a comment hinting at the swap.
     return f"{snippet}  # try: {new}"
 
 
