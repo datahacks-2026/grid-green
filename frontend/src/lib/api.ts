@@ -1,6 +1,10 @@
-// Typed client mirroring backend/app/models/schemas.py.
-// Routes live behind Next.js rewrites (next.config.mjs) so the browser
-// always talks to /api/* and the rewrite forwards to BACKEND_URL.
+// Typed client — routes use Next.js `/api/*` rewrites → BACKEND_URL.
+
+import type {
+  Scorecard,
+  ScorecardEvent,
+  SuggestResponse,
+} from "@/types/api";
 
 export type Region = "CISO" | "ERCO" | "PJM" | "MISO" | "NYIS";
 export type Confidence = "low" | "medium" | "high";
@@ -83,3 +87,43 @@ export async function findCleanWindow(
   );
   return jsonOrThrow(res);
 }
+
+async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    cache: "no-store",
+  });
+  return jsonOrThrow(res);
+}
+
+/** Optional Part A fields — backend merges these into RAG reasoning when present. */
+export type SuggestGreenerPayload = {
+  code: string;
+  region?: Region;
+  co2_grams_now?: number | null;
+  co2_grams_optimal?: number | null;
+  current_gco2_kwh?: number | null;
+  optimal_window_start?: string | null;
+  co2_savings_pct_window?: number | null;
+  impact_focus_lines?: number[];
+};
+
+export const api = {
+  suggestGreener: (payload: SuggestGreenerPayload) =>
+    jsonFetch<SuggestResponse>("/api/suggest_greener", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getScorecard: (sessionId: string) =>
+    jsonFetch<Scorecard>(
+      `/api/scorecard?session_id=${encodeURIComponent(sessionId)}`,
+    ),
+
+  recordEvent: (event: ScorecardEvent) =>
+    jsonFetch<Scorecard>("/api/scorecard/event", {
+      method: "POST",
+      body: JSON.stringify(event),
+    }),
+};

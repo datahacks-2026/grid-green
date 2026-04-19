@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import CodeEditor from "@/components/CodeEditor";
 import RunAnalysisModal from "@/components/RunAnalysisModal";
+import { StatsCard } from "@/components/StatsCard";
+import { SuggestionSidebar } from "@/components/SuggestionSidebar";
 import {
   checkGrid,
   type CheckGridResponse,
@@ -15,6 +17,8 @@ import {
   type Region,
 } from "@/lib/api";
 import { SAMPLE_CODE } from "@/lib/sample";
+import type { CarbonAnalysisContext } from "@/components/SuggestionSidebar";
+import type { Suggestion } from "@/types/api";
 
 const REGIONS: Region[] = ["CISO", "ERCO", "PJM", "MISO", "NYIS"];
 
@@ -28,8 +32,8 @@ export default function Home() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scoreRefresh, setScoreRefresh] = useState(0);
 
-  // Lightweight grid status in the header — refreshed on region change.
   useEffect(() => {
     const ctrl = new AbortController();
     checkGrid(region, ctrl.signal)
@@ -60,6 +64,19 @@ export default function Home() {
     }
   }, [code, region]);
 
+  function handleApplySuggestion(s: Suggestion) {
+    setCode((prev) => prev.split(s.original_snippet).join(s.alternative_snippet));
+  }
+
+  const carbonContext = useMemo<CarbonAnalysisContext>(
+    () => ({
+      estimate,
+      grid,
+      cleanWindow,
+    }),
+    [estimate, grid, cleanWindow],
+  );
+
   return (
     <main className="flex h-screen flex-col">
       <header className="flex flex-wrap items-center gap-4 border-b border-gg-border px-5 py-3">
@@ -68,11 +85,17 @@ export default function Home() {
             GridGreen <span className="text-gg-muted">— carbon-aware ML copilot</span>
           </h1>
           <p className="text-xs text-gg-muted">
-            Person A slice: grid + estimator. Paste a training script, pick a region, run analysis.
+            Paste a training script, pick a region, run analysis — greener model swaps on the right.
           </p>
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-3">
+          <a
+            href="/mcp"
+            className="text-xs text-gg-muted underline-offset-2 hover:text-gg-accent hover:underline"
+          >
+            MCP setup →
+          </a>
           <label className="flex items-center gap-2 text-sm">
             <span className="text-gg-muted">Region</span>
             <select
@@ -118,9 +141,21 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="min-h-0 flex-1">
-        <CodeEditor value={code} onChange={setCode} patterns={patterns} />
-      </section>
+      <div className="flex min-h-0 flex-1">
+        <section className="min-w-0 flex-1">
+          <CodeEditor value={code} onChange={setCode} patterns={patterns} />
+        </section>
+        <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-gg-border bg-gg-panel p-3">
+          <StatsCard refreshKey={scoreRefresh} />
+          <SuggestionSidebar
+            code={code}
+            region={region}
+            carbonContext={carbonContext}
+            onApplySuggestion={handleApplySuggestion}
+            onScorecardChange={() => setScoreRefresh((n) => n + 1)}
+          />
+        </aside>
+      </div>
 
       <RunAnalysisModal
         open={open}

@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark;
+}
+
 html,
 body {
   background-color: #0b1220;
@@ -24,6 +28,12 @@ body {
   background-color: rgba(34, 197, 94, 0.16);
 }
 
-.gg-glyph-high::before { content: "🔥"; }
-.gg-glyph-medium::before { content: "⚠"; }
-.gg-glyph-low::before { content: "•"; }
+.gg-glyph-high::before {
+  content: "🔥";
+}
+.gg-glyph-medium::before {
+  content: "⚠";
+}
+.gg-glyph-low::before {
+  content: "•";
+}

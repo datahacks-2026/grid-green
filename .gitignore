@@ -41,3 +41,17 @@ backend/data/raw/
 coverage/
 .coverage
 htmlcov/
+.venv/
+.env
+
+# Node
+node_modules/
+.next/
+out/
+.env.local
+.env.*.local
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
