@@ -1,4 +1,4 @@
-"""Storage facade with Snowflake → SQLite fallback.
+"""Storage facade with Databricks/Snowflake/SQLite paths.
 
 Person A note: README §10 contingency — if Snowflake auth fails, fall back to
 local SQLite so the demo path keeps working. This module hides the choice
@@ -161,7 +161,28 @@ def fetch_recent(
     metric: str = "carbon_intensity",
     limit: int = 24 * 30,
 ) -> List[Tuple[datetime, float]]:
-    """Return list of (ts_utc, value) in chronological order."""
+    """Return list of (ts_utc, value) in chronological order.
+
+    Runtime source is controlled by `GRIDGREEN_SERVE_FROM`:
+    - `local`      : SQLite only
+    - `databricks` : Databricks SQL first, fallback to SQLite on failure/empty
+    - `auto`       : Databricks SQL first when configured, else SQLite
+    """
+    settings = get_settings()
+    mode = (settings.gridgreen_serve_from or "local").strip().lower()
+    rows: list[tuple[str, float]] = []
+
+    use_databricks = mode == "databricks" or (mode == "auto" and settings.use_databricks_sql)
+    if use_databricks:
+        rows = _fetch_recent_databricks(region=region, metric=metric, limit=limit)
+        if rows:
+            return _normalize_rows(rows)
+
+    rows = _fetch_recent_sqlite(region=region, metric=metric, limit=limit)
+    return _normalize_rows(rows)
+
+
+def _fetch_recent_sqlite(region: str, metric: str, limit: int) -> list[tuple[str, float]]:
     with sqlite_conn() as conn:
         cur = conn.execute(
             """
@@ -173,7 +194,82 @@ def fetch_recent(
             """,
             (region, metric, limit),
         )
-        rows = cur.fetchall()
+        return [(str(ts), float(v)) for ts, v in cur.fetchall()]
+
+
+def _fetch_recent_databricks(region: str, metric: str, limit: int) -> list[tuple[str, float]]:
+    """Read recent rows from Databricks SQL table(s).
+
+    Query order:
+    1) `DATABRICKS_GOLD_TABLE` (if configured; no metric filter)
+    2) `DATABRICKS_BRONZE_TABLE` (with metric filter)
+
+    Falls back silently to SQLite callers on any connector/query issue/empty result.
+    """
+    settings = get_settings()
+    tables = _databricks_candidate_tables()
+    try:
+        from databricks import sql as dbsql  # type: ignore
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Databricks SQL connector unavailable (%s); using SQLite", exc)
+        return []
+
+    try:
+        with dbsql.connect(
+            server_hostname=settings.databricks_server_hostname or "",
+            http_path=settings.databricks_http_path or "",
+            access_token=settings.databricks_token or "",
+        ) as conn:
+            with conn.cursor() as cur:
+                for table in tables:
+                    if table == (settings.databricks_gold_table or "").strip():
+                        # Gold table shape is expected to contain ts_utc, region_code, value
+                        # and usually does not include a `metric` column.
+                        cur.execute(
+                            f"""
+                            SELECT ts_utc, value
+                            FROM {table}
+                            WHERE region_code = ?
+                            ORDER BY ts_utc DESC
+                            LIMIT ?
+                            """,
+                            (region, limit),
+                        )
+                    else:
+                        cur.execute(
+                            f"""
+                            SELECT ts_utc, value
+                            FROM {table}
+                            WHERE region_code = ? AND metric = ?
+                            ORDER BY ts_utc DESC
+                            LIMIT ?
+                            """,
+                            (region, metric, limit),
+                        )
+                    out: list[tuple[str, float]] = []
+                    for ts, value in cur.fetchall():
+                        out.append((str(ts), float(value)))
+                    if out:
+                        return out
+                return []
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Databricks read failed (%s); using SQLite", exc)
+        return []
+
+
+def _databricks_candidate_tables() -> list[str]:
+    """Databricks read priority for runtime serving."""
+    s = get_settings()
+    out: list[str] = []
+    gold = (s.databricks_gold_table or "").strip()
+    if gold:
+        out.append(gold)
+    out.append(s.databricks_bronze_table)
+    return out
+
+
+def _normalize_rows(rows: list[tuple[str, float]]) -> List[Tuple[datetime, float]]:
+    """Normalize timestamp strings into UTC datetimes and sort ascending."""
 
     out: List[Tuple[datetime, float]] = []
     for ts_str, value in rows:

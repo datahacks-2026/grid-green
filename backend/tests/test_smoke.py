@@ -683,6 +683,47 @@ def test_embedding_cache_size_mismatch_is_rejected(tmp_path, monkeypatch) -> Non
     assert embedding_cache.load_cache(expected_n_docs=42) is None
 
 
+def test_storage_fetch_recent_prefers_databricks_in_auto_mode(monkeypatch) -> None:
+    """When `GRIDGREEN_SERVE_FROM=auto` and Databricks returns rows, SQLite should not be used."""
+    from app.config import get_settings
+    from app.services import storage
+
+    monkeypatch.setenv("GRIDGREEN_SERVE_FROM", "auto")
+    monkeypatch.setenv("DATABRICKS_SERVER_HOSTNAME", "example.databricks.com")
+    monkeypatch.setenv("DATABRICKS_HTTP_PATH", "/sql/1.0/warehouses/abc")
+    monkeypatch.setenv("DATABRICKS_TOKEN", "tok")
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+
+    def _fake_db(*, region: str, metric: str, limit: int):  # noqa: ARG001
+        return [("2026-01-01T00:00:00+00:00", 123.4)]
+
+    def _fake_sqlite(*, region: str, metric: str, limit: int):  # noqa: ARG001
+        raise AssertionError("SQLite fallback should not be called when Databricks returns rows")
+
+    monkeypatch.setattr(storage, "_fetch_recent_databricks", _fake_db)
+    monkeypatch.setattr(storage, "_fetch_recent_sqlite", _fake_sqlite)
+
+    rows = storage.fetch_recent("CISO", limit=1)
+    assert len(rows) == 1
+    assert rows[0][1] == 123.4
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+
+
+def test_storage_databricks_candidate_tables_gold_first(monkeypatch) -> None:
+    from app.config import get_settings
+    from app.services import storage
+
+    monkeypatch.setenv("DATABRICKS_GOLD_TABLE", "gridgreen.processed.eia_gold_carbon_24h_ma")
+    monkeypatch.setenv("DATABRICKS_BRONZE_TABLE", "gridgreen.raw.eia_raw")
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+
+    assert storage._databricks_candidate_tables() == [  # noqa: SLF001
+        "gridgreen.processed.eia_gold_carbon_24h_ma",
+        "gridgreen.raw.eia_raw",
+    ]
+    get_settings.cache_clear()  # type: ignore[attr-defined]
+
+
 def test_run_pipeline_module_imports_and_exposes_main() -> None:
     """Single entry point sanity check — full execution requires data + AWS."""
     from scripts import run_pipeline

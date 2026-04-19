@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     databricks_token: str | None = None
     # Unity Catalog FQN for bronze Delta table (DLT + notebooks read this).
     databricks_bronze_table: str = "gridgreen.raw.eia_raw"
+    # Optional Databricks gold/processed table for runtime serving. When set,
+    # reads prefer this table before bronze.
+    databricks_gold_table: str | None = None
+    # Runtime read path for grid endpoints:
+    # - local      : SQLite only (default; fastest/stable for dev)
+    # - databricks : Databricks SQL only (falls back to SQLite on query/import errors)
+    # - auto       : Databricks first when configured, else SQLite
+    gridgreen_serve_from: str = "auto"
 
     # Precomputed RAG embedding cache (built by SageMaker / Brev / run_pipeline).
     # Loaded by `app.services.embedding_cache` at startup.
