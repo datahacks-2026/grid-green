@@ -226,7 +226,7 @@ green-watts/
 │   │   ├── models/          # Pydantic schemas
 │   │   └── data/            # hf_corpus.json (RAG pairs)
 │   ├── scripts/             # Ingest, index-building, sponsor integrations
-│   ├── tests/               # pytest suite (54 tests)
+│   ├── tests/               # pytest suite (56 tests)
 │   └── mcp_server.py        # MCP tool server
 ├── frontend/
 │   └── src/
