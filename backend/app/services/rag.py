@@ -27,7 +27,7 @@ import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import List, Tuple
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -65,6 +65,19 @@ class Suggestion:
     performance_retained_pct: float
     citation: str
     reasoning: str
+
+
+@dataclass(frozen=True)
+class SuggestContext:
+    """Optional Part A signals — when set, suggestions are ranked and explained with grid + script CO₂."""
+
+    region: str | None = None
+    co2_grams_now: float | None = None
+    co2_grams_optimal: float | None = None
+    current_gco2_kwh: float | None = None
+    optimal_window_start: str | None = None
+    co2_savings_pct_window: float | None = None
+    impact_focus_lines: tuple[int, ...] = ()
 
 
 class RagIndex:
@@ -127,11 +140,16 @@ class RagIndex:
         code: str,
         *,
         top_k: int = 3,
+        context: SuggestContext | None = None,
     ) -> List[Suggestion]:
         self._ensure_loaded()
         hits = _extract_model_hits(code)
         if not hits:
             return []
+
+        if context and context.impact_focus_lines:
+            focus = frozenset(context.impact_focus_lines)
+            hits = sorted(hits, key=lambda h: (0 if h[0] in focus else 1, h[0]))
 
         suggestions: List[Suggestion] = []
         seen: set[Tuple[str, str]] = set()
@@ -148,6 +166,7 @@ class RagIndex:
                 if key in seen:
                     continue
                 seen.add(key)
+                reasoning = _reasoning_with_part_a(entry.reasoning, line, context)
                 suggestions.append(
                     Suggestion(
                         line=line,
@@ -156,7 +175,7 @@ class RagIndex:
                         carbon_saved_pct=entry.carbon_saved_pct,
                         performance_retained_pct=entry.performance_retained_pct,
                         citation=entry.citation,
-                        reasoning=entry.reasoning,
+                        reasoning=reasoning,
                     )
                 )
                 if len([s for s in suggestions if s.line == line]) >= top_k:
@@ -236,5 +255,50 @@ def get_index() -> RagIndex:
     return _INDEX
 
 
-def suggest(code: str, top_k: int = 3) -> List[Suggestion]:
-    return get_index().suggest(code, top_k=top_k)
+def suggest(
+    code: str,
+    top_k: int = 3,
+    *,
+    context: SuggestContext | None = None,
+) -> List[Suggestion]:
+    return get_index().suggest(code, top_k=top_k, context=context)
+
+
+def _reasoning_with_part_a(
+    corpus_reasoning: str,
+    line: int,
+    context: SuggestContext | None,
+) -> str:
+    """Append Part A (grid + estimate) narrative so swaps are justified in the user's context."""
+    if not context:
+        return corpus_reasoning
+    bits: List[str] = []
+    if context.region and context.current_gco2_kwh is not None:
+        bits.append(
+            f"Grid ({context.region}) is ~{context.current_gco2_kwh:.0f} gCO₂/kWh right now."
+        )
+    if (
+        context.co2_grams_now is not None
+        and context.co2_grams_optimal is not None
+        and context.co2_grams_now > 0
+    ):
+        script_pct = 100.0 * (1.0 - context.co2_grams_optimal / context.co2_grams_now)
+        bits.append(
+            f"Rules-based script estimate: ~{context.co2_grams_now:.0f} g CO₂ if you train "
+            f"through the current mix vs ~{context.co2_grams_optimal:.0f} g when timed with "
+            f"the cleaner window (~{script_pct:.0f}% lower) — independent of this model swap."
+        )
+    if context.optimal_window_start or context.co2_savings_pct_window is not None:
+        slot = context.optimal_window_start or "the forecast low-carbon window"
+        pct = context.co2_savings_pct_window
+        if pct is not None:
+            bits.append(
+                f"Clean-window timing ({slot}) can cut grid-attributed intensity ~{pct:.0f}% vs running now."
+            )
+        else:
+            bits.append(f"Clean-window timing: next favorable slot around {slot}.")
+    if context.impact_focus_lines and line in frozenset(context.impact_focus_lines):
+        bits.append("This line is near a high-impact training pattern in your script.")
+    if not bits:
+        return corpus_reasoning
+    return corpus_reasoning.rstrip() + " " + " ".join(bits)

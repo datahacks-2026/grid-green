@@ -1,28 +1,27 @@
-# GridGreen — Backend (Person A)
+# GridGreen — Backend
 
-FastAPI service for the **Grid intelligence** slice. Ships three real
-endpoints (`estimate_carbon`, `check_grid`, `find_clean_window`) and
-contract-valid stubs for Person B's two endpoints (`suggest_greener`,
-`scorecard`) so the frontend / MCP / Claude wiring can be built end-to-end
-before Phase 5.
+FastAPI service: **grid intelligence** (`estimate_carbon`, `check_grid`,
+`find_clean_window`) plus **model suggestions** (`suggest_greener`, `scorecard`)
+and optional **MCP** for Claude Desktop.
 
-> Source of truth for shapes: [`../CONTRACT.md`](../CONTRACT.md).
+> API shapes: [`../CONTRACT.md`](../CONTRACT.md).
 
 ---
 
 ## Quick start
-# GridGreen Backend — Person B slice
 
-## Local run
+**Python:** **3.14** is supported. `requirements.txt` pins **pydantic 2.13.x**
+so `pydantic-core` installs from **prebuilt cp314 wheels** (no local Rust build).
 
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
+python3.14 -m venv .venv && source .venv/bin/activate   # or python3.12, etc.
+pip install -U pip setuptools wheel
 pip install -r requirements.txt
-<<<<<<< HEAD
-cp .env.example .env             # fill in EIA / Snowflake keys when you have them
-python -m scripts.ingest_eia     # works without keys (mock data)
-uvicorn app.main:app --reload --port 8000
+cp .env.example .env
+# Optional: EIA_API_KEY, SNOWFLAKE_*, GEMINI_API_KEY (see .env.example)
+python -m scripts.ingest_eia   # works without EIA key (mock / synthetic data)
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Then:
@@ -35,69 +34,40 @@ Then:
 ## Tests
 
 ```bash
-cd backend
+cd backend && source .venv/bin/activate
 pytest -q
 ```
+
+## MCP server (optional)
+
+```bash
+cd backend && source .venv/bin/activate
+python -m app.mcp_server
+```
+
+Configure Claude Desktop using the frontend **`/mcp`** page (or your team’s JSON snippet).
+
+---
 
 ## Layout
 
 ```
 backend/
 ├── app/
-│   ├── main.py                 # FastAPI factory + CORS + routers
-│   ├── config.py               # env loading (pydantic-settings)
-│   ├── models/schemas.py       # Pydantic shapes mirroring CONTRACT.md
+│   ├── main.py
+│   ├── config.py
+│   ├── models/schemas.py
 │   ├── routes/
-│   │   ├── health.py           # /ping, /
-│   │   ├── grid.py             # Person A — 3 endpoints
-│   │   └── stubs.py            # Person B — contract-valid placeholders
 │   └── services/
-│       ├── regions.py          # supported balancing authorities
-│       ├── eia_client.py       # EIA fetch + offline mock generator
-│       ├── storage.py          # Snowflake (when configured) → SQLite fallback
-│       ├── forecaster.py       # 48h seasonal-naive baseline (Prophet later)
-│       └── carbon_estimator.py # rules-based code → gCO2
-├── scripts/
-│   └── ingest_eia.py           # one-shot ingest (use cron or manual refresh)
+├── scripts/ingest_eia.py
 ├── tests/
-│   └── test_smoke.py
-├── data/                       # SQLite + cache live here (gitignored)
+├── data/                 # SQLite + cache (gitignored)
 ├── .env.example
 └── requirements.txt
 ```
 
 ## Notes
 
-- **Snowflake is optional in dev.** When `SNOWFLAKE_*` are unset the storage
-  layer transparently uses SQLite at `backend/data/gridgreen.sqlite`.
-- **EIA is optional in dev.** When `EIA_API_KEY` is unset the ingest script
-  writes a deterministic synthetic series so the demo path works offline.
-- **Prophet** is in `requirements.txt` for Phase 3 — the current forecaster
-  uses a seasonal-naive baseline so the API is real-shaped from day one.
-- Phase 5 swaps the small built-in model catalog in `carbon_estimator.py`
-  for a Snowflake Cortex / RAG lookup over Hugging Face model cards.
-=======
-cp .env.example .env   # fill in GEMINI_API_KEY
-uvicorn app.main:app --reload --port 8000
-```
-
-Health check: `curl http://localhost:8000/ping` → `{"ok": true}`
-
-## Person B endpoints
-
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/api/suggest_greener` | Greener-model swap suggestions + Gemini reasoning |
-| GET  | `/api/scorecard?session_id=…` | Read cumulative session savings |
-| POST | `/api/scorecard/event` | Record a `suggestion_accepted` or `run_deferred` event |
-
-## MCP server
-
-```bash
-python -m app.mcp_server
-```
-
-Person B's tools (`suggest_greener_tool`, `get_scorecard`) are real.
-Person A's tools (`estimate_carbon`, `check_grid`, `find_clean_window`)
-are auto-stubbed until A pushes their routes.
->>>>>>> f832910 (part b)
+- **Snowflake is optional in dev.** When `SNOWFLAKE_*` are unset, storage uses SQLite under `backend/data/`.
+- **EIA is optional in dev.** Without `EIA_API_KEY`, ingest can still populate synthetic series for demos.
+- **Heavy extras** (Prophet, sentence-transformers, Snowflake connector, W&B): `pip install -r requirements-extras.txt`.

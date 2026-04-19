@@ -83,3 +83,27 @@ def _fallback(
         f"original's task performance while cutting compute carbon by "
         f"{carbon_saved_pct}%. Source: {citation}"
     )
+
+
+def polish_reasoning_paragraph(text: str) -> str:
+    """Tighten corpus + grid narrative into 2–4 sentences when Gemini is available."""
+    text = text.strip()
+    if not text:
+        return text
+    client = _get_client()
+    if client is None:
+        return text
+    prompt = (
+        "You are GridGreen, a carbon-aware ML copilot. Rewrite the paragraph below "
+        "into 2–4 concise sentences for a developer. Preserve every numeric fact "
+        "(grams, %, gCO₂/kWh, region codes). Do not invent new numbers.\n\n"
+        f"{text}"
+    )
+    try:
+        resp = client.generate_content(prompt)
+        out: str | None = getattr(resp, "text", None)
+        if out:
+            return out.strip()
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Gemini polish failed, using raw text: %s", exc)
+    return text

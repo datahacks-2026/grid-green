@@ -1,6 +1,4 @@
-// Mirrors backend/app/schemas.py — keep in sync with README §5.
-
-export type Region = "CISO" | "ERCO" | "PJM" | "MISO" | "NYIS";
+// Person B — suggest + scorecard shapes (keep in sync with CONTRACT.md).
 
 export interface Suggestion {
   line: number;
@@ -25,20 +23,3 @@ export interface Scorecard {
 export type ScorecardEvent =
   | { session_id: string; event: "suggestion_accepted"; co2_saved_grams: number }
   | { session_id: string; event: "run_deferred"; co2_saved_grams: number };
-
-// Person A's contracts — defined here so the UI can render them
-// the moment A's endpoints go live, without another typing pass.
-export interface DetectedPattern {
-  line: number;
-  pattern: string;
-  impact: "low" | "medium" | "high";
-}
-
-export interface EstimateCarbonResponse {
-  co2_grams_now: number;
-  co2_grams_optimal: number;
-  gpu_hours: number;
-  kwh_estimated: number;
-  confidence: "low" | "medium" | "high";
-  detected_patterns: DetectedPattern[];
-}

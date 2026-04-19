@@ -56,7 +56,34 @@ class FindCleanWindowResponse(BaseModel):
 # Person B owns these — included so Person A's MCP/HTTP tooling can stub them
 # without breaking shapes.
 class SuggestGreenerRequest(BaseModel):
+    """`code` is required; all other fields come from Part A after the user runs analysis."""
+
     code: str
+    region: Region | None = Field(
+        default=None,
+        description="Balancing authority — used to tailor grid-aware reasoning.",
+    )
+    co2_grams_now: float | None = Field(
+        default=None, description="From POST /api/estimate_carbon — run-now script estimate."
+    )
+    co2_grams_optimal: float | None = Field(
+        default=None, description="From estimate_carbon — aligned with cleaner forecast window."
+    )
+    current_gco2_kwh: float | None = Field(
+        default=None, description="From GET /api/check_grid — live grid carbon intensity."
+    )
+    optimal_window_start: str | None = Field(
+        default=None,
+        description="ISO-8601 UTC from find_clean_window.optimal_start.",
+    )
+    co2_savings_pct_window: float | None = Field(
+        default=None,
+        description="From find_clean_window.co2_savings_pct — deferral benefit on intensity.",
+    )
+    impact_focus_lines: List[int] = Field(
+        default_factory=list,
+        description="Line numbers of high-impact patterns from estimate_carbon.detected_patterns.",
+    )
 
 
 class GreenerSuggestion(BaseModel):
@@ -77,3 +104,9 @@ class ScorecardResponse(BaseModel):
     co2_saved_grams: float
     runs_deferred: int
     suggestions_accepted: int
+
+
+class ScorecardEventRequest(BaseModel):
+    session_id: str = Field(..., min_length=1)
+    event: Literal["suggestion_accepted", "run_deferred"]
+    co2_saved_grams: float | None = 0.0

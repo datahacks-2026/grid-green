@@ -3,13 +3,18 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "GridGreen — Carbon-aware ML copilot",
-  description: "Every model.fit() is a climate decision.",
+  description:
+    "Estimate the CO₂ cost of your ML training script and find the cleanest time to run it.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className="min-h-screen bg-gg-bg text-gg-text">{children}</body>
     </html>
   );
 }

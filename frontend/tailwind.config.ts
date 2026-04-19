@@ -1,10 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  content: [
-    "./app/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
-  ],
+  content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
@@ -19,12 +16,6 @@ const config: Config = {
           text: "#e2e8f0",
           muted: "#94a3b8",
         },
-      },
-      fontFamily: {
-  content: ["./src/**/*.{ts,tsx}"],
-  theme: {
-    extend: {
-      colors: {
         ink: "#0b1220",
         leaf: "#22c55e",
         leafDeep: "#15803d",

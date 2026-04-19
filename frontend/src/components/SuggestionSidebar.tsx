@@ -1,32 +1,71 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import type {
+  CheckGridResponse,
+  EstimateCarbonResponse,
+  FindCleanWindowResponse,
+  Region,
+  SuggestGreenerPayload,
+} from "@/lib/api";
 import { getSessionId } from "@/lib/session";
 import type { Suggestion } from "@/types/api";
 import { SuggestionCard } from "./SuggestionCard";
 
+export interface CarbonAnalysisContext {
+  estimate: EstimateCarbonResponse | null;
+  grid: CheckGridResponse | null;
+  cleanWindow: FindCleanWindowResponse | null;
+}
+
 interface Props {
-  /**
-   * Current editor source. The sidebar refetches whenever this changes
-   * (debounced) — Person A's Monaco component just needs to keep this prop
-   * up to date.
-   */
   code: string;
-  /** Called when user clicks Apply on a card; the editor should swap the snippet. */
+  region: Region;
+  /** After "Run analysis", pass estimate + clean window so swaps cite Part A numbers. */
+  carbonContext?: CarbonAnalysisContext | null;
   onApplySuggestion: (s: Suggestion) => void;
-  /** Optional callback so the parent can refresh the stats card. */
   onScorecardChange?: () => void;
+}
+
+function buildSuggestPayload(
+  code: string,
+  region: Region,
+  ctx: CarbonAnalysisContext | null | undefined,
+): SuggestGreenerPayload {
+  const base: SuggestGreenerPayload = { code, region };
+  if (!ctx?.estimate) {
+    return base;
+  }
+  const focusLines = ctx.estimate.detected_patterns
+    .filter((p) => p.impact === "high")
+    .map((p) => p.line);
+  return {
+    ...base,
+    co2_grams_now: ctx.estimate.co2_grams_now,
+    co2_grams_optimal: ctx.estimate.co2_grams_optimal,
+    current_gco2_kwh: ctx.grid?.current_gco2_kwh ?? undefined,
+    optimal_window_start: ctx.cleanWindow?.optimal_start ?? undefined,
+    co2_savings_pct_window: ctx.cleanWindow?.co2_savings_pct ?? undefined,
+    impact_focus_lines: focusLines.length ? focusLines : undefined,
+  };
 }
 
 export function SuggestionSidebar({
   code,
+  region,
+  carbonContext,
   onApplySuggestion,
   onScorecardChange,
 }: Props) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const payload = useMemo(
+    () => buildSuggestPayload(code, region, carbonContext ?? null),
+    [code, region, carbonContext],
+  );
 
   useEffect(() => {
     if (!code.trim()) {
@@ -37,7 +76,7 @@ export function SuggestionSidebar({
       setLoading(true);
       setError(null);
       try {
-        const res = await api.suggestGreener(code);
+        const res = await api.suggestGreener(payload);
         setSuggestions(res.suggestions);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
@@ -46,7 +85,7 @@ export function SuggestionSidebar({
       }
     }, 600);
     return () => clearTimeout(handle);
-  }, [code]);
+  }, [payload]);
 
   async function handleApply(s: Suggestion) {
     onApplySuggestion(s);
@@ -58,29 +97,35 @@ export function SuggestionSidebar({
       });
       onScorecardChange?.();
     } catch {
-      /* fail silently — the swap already happened in the editor */
+      /* swap already applied */
     }
   }
 
+  const hasAnalysis = Boolean(carbonContext?.estimate);
+
   return (
-    <aside className="flex h-full w-full flex-col gap-3 overflow-y-auto p-4">
+    <aside className="flex h-full w-full flex-col gap-3 overflow-y-auto p-2">
       <header className="flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-ash">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-gg-muted">
           Greener alternatives
         </h2>
-        {loading && <span className="text-xs text-ash">analyzing…</span>}
+        {loading && <span className="text-xs text-gg-muted">analyzing…</span>}
       </header>
 
-      {error && (
-        <p className="rounded-md bg-rose-500/10 p-2 text-xs text-rose-300">
-          {error}
+      {hasAnalysis && (
+        <p className="rounded-md border border-gg-accent/30 bg-gg-accent/10 px-2 py-1.5 text-[10px] leading-snug text-gg-text">
+          Using your last <strong>Run analysis</strong> (grid + script CO₂) to rank and explain swaps.
         </p>
       )}
 
+      {error && (
+        <p className="rounded-md bg-rose-500/10 p-2 text-xs text-rose-300">{error}</p>
+      )}
+
       {!loading && suggestions.length === 0 && !error && (
-        <p className="rounded-md border border-dashed border-white/10 p-4 text-xs text-ash">
-          No swap suggestions yet — try pasting a script that uses
-          <code className="mx-1 font-mono text-leaf">from_pretrained(...)</code>.
+        <p className="rounded-md border border-dashed border-gg-border p-3 text-xs text-gg-muted">
+          No swap suggestions — use <code className="font-mono text-gg-accent">from_pretrained(&quot;…&quot;)</code>{" "}
+          with a model in the corpus, then click <strong>Run analysis</strong> for grid-aware reasoning.
         </p>
       )}
 

@@ -106,6 +106,48 @@ def test_suggest_greener_no_models_returns_empty() -> None:
     assert r.json()["suggestions"] == []
 
 
+def test_suggest_greener_merges_part_a_context_into_reasoning() -> None:
+    code = (
+        "from transformers import AutoModelForSeq2SeqLM\n"
+        "m = AutoModelForSeq2SeqLM.from_pretrained('google/flan-t5-xxl')\n"
+    )
+    r = client.post(
+        "/api/suggest_greener",
+        json={
+            "code": code,
+            "region": "CISO",
+            "current_gco2_kwh": 455.2,
+            "co2_grams_now": 900.0,
+            "co2_grams_optimal": 200.0,
+            "co2_savings_pct_window": 40.0,
+            "optimal_window_start": "2026-01-01T03:00:00Z",
+            "impact_focus_lines": [2],
+        },
+    )
+    assert r.status_code == 200
+    suggestions = r.json()["suggestions"]
+    assert suggestions
+    reasoning = suggestions[0]["reasoning"]
+    assert "CISO" in reasoning
+    assert "455" in reasoning or "455.2" in reasoning
+
+
+def test_scorecard_event_roundtrip() -> None:
+    import uuid
+
+    sid = f"pytest-{uuid.uuid4().hex}"
+    r0 = client.get("/api/scorecard", params={"session_id": sid})
+    assert r0.status_code == 200
+    assert r0.json()["suggestions_accepted"] == 0
+    r1 = client.post(
+        "/api/scorecard/event",
+        json={"session_id": sid, "event": "suggestion_accepted", "co2_saved_grams": 12.5},
+    )
+    assert r1.status_code == 200
+    assert r1.json()["suggestions_accepted"] == 1
+    assert r1.json()["co2_saved_grams"] == 12.5
+
+
 # ---------------------------------------------------------------------------
 # Optional context routes
 # ---------------------------------------------------------------------------

@@ -6,6 +6,34 @@
   color-scheme: dark;
 }
 
+html,
 body {
-  @apply bg-ink text-slate-100 font-sans;
+  background-color: #0b1220;
+  color: #e2e8f0;
+  height: 100%;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+.gg-impact-high {
+  background-color: rgba(239, 68, 68, 0.18);
+}
+.gg-impact-medium {
+  background-color: rgba(245, 158, 11, 0.18);
+}
+.gg-impact-low {
+  background-color: rgba(34, 197, 94, 0.16);
+}
+
+.gg-glyph-high::before {
+  content: "🔥";
+}
+.gg-glyph-medium::before {
+  content: "⚠";
+}
+.gg-glyph-low::before {
+  content: "•";
 }

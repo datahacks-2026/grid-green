@@ -37,8 +37,22 @@ All endpoints are mounted under `/api`.
 
 ### Request
 ```json
-{ "code": "string" }
+{
+  "code": "string",
+  "region": "CISO | ERCO | PJM | MISO | NYIS",
+  "co2_grams_now": 1840,
+  "co2_grams_optimal": 340,
+  "current_gco2_kwh": 450,
+  "optimal_window_start": "2026-04-20T03:00:00Z",
+  "co2_savings_pct_window": 62,
+  "impact_focus_lines": [12, 44]
+}
 ```
+
+All fields except **`code`** are optional. When supplied (typically from
+`estimate_carbon`, `check_grid`, and `find_clean_window` after the user clicks
+**Run analysis**), the service ranks high-impact lines first and appends
+grid + script CO₂ context to each suggestion's `reasoning`.
 
 ### Response
 ```json
