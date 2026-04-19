@@ -11,10 +11,11 @@ import {
   YAxis,
 } from "recharts";
 
-import type {
-  EstimateCarbonResponse,
-  FindCleanWindowResponse,
-  Region,
+import {
+  formatRegionLabel,
+  type EstimateCarbonResponse,
+  type FindCleanWindowResponse,
+  type Region,
 } from "@/lib/api";
 
 type Props = {
@@ -69,7 +70,8 @@ export default function RunAnalysisModal({
           <div>
             <h2 className="text-lg font-semibold">Run analysis</h2>
             <p className="text-xs text-gg-muted">
-              Region: <span className="font-mono">{region}</span>
+              Grid region:{" "}
+              <span className="text-gg-text">{formatRegionLabel(region)}</span>
             </p>
           </div>
           <button
@@ -103,7 +105,7 @@ export default function RunAnalysisModal({
               <div className="rounded border border-gg-border bg-black/30 p-3">
                 <p className="text-sm">
                   Waiting saves about <strong className="text-gg-accent">{savings}%</strong>{" "}
-                  CO₂ for this run on the {region} grid.
+                  CO₂ for this run on the {formatRegionLabel(region)} grid.
                 </p>
               </div>
 

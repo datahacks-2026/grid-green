@@ -13,7 +13,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import get_settings
-from app.routes import context, grid, health, stubs
+from app.routes import context, grid, health, repo, stubs
 from app.services.limits import limiter
 
 
@@ -68,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(grid.router)
     app.include_router(stubs.router)
     app.include_router(context.router)
+    app.include_router(repo.router)
     return app
 
 

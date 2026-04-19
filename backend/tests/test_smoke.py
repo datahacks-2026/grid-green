@@ -108,6 +108,37 @@ def test_suggest_greener_no_models_returns_empty() -> None:
     assert r.json()["suggestions"] == []
 
 
+def test_suggest_greener_detects_openai_api_model() -> None:
+    code = (
+        "from openai import OpenAI\n"
+        "client = OpenAI()\n"
+        "resp = client.chat.completions.create(model='gpt-4-turbo', messages=[])\n"
+    )
+    r = client.post("/api/suggest_greener", json={"code": code})
+    assert r.status_code == 200
+    suggestions = r.json()["suggestions"]
+    assert suggestions, "expected greener API-model swap for gpt-4-turbo"
+    assert "gpt-4o-mini" in suggestions[0]["alternative_snippet"].lower()
+
+
+def test_suggest_greener_detects_assignment_literal() -> None:
+    code = 'MODEL_ID = "meta-llama/Llama-3-70B"\n'
+    r = client.post("/api/suggest_greener", json={"code": code})
+    assert r.status_code == 200
+    suggestions = r.json()["suggestions"]
+    assert suggestions, "expected greener swap for Llama-3-70B literal"
+    assert "llama-3-8b" in suggestions[0]["alternative_snippet"].lower()
+
+
+def test_suggest_greener_detects_pipeline_kwarg() -> None:
+    code = "from transformers import pipeline\np = pipeline('text-generation', model='mistralai/Mixtral-8x7B-v0.1')\n"
+    r = client.post("/api/suggest_greener", json={"code": code})
+    assert r.status_code == 200
+    suggestions = r.json()["suggestions"]
+    assert suggestions, "expected greener swap for Mixtral-8x7B"
+    assert "mistral-7b" in suggestions[0]["alternative_snippet"].lower()
+
+
 def test_suggest_greener_merges_part_a_context_into_reasoning() -> None:
     code = (
         "from transformers import AutoModelForSeq2SeqLM\n"
@@ -187,3 +218,59 @@ def test_dlt_local_runs_without_data() -> None:
     from scripts import dlt_pipeline
 
     dlt_pipeline.run_local()
+
+
+# ---------------------------------------------------------------------------
+# Diagnostics + repo analyzer
+# ---------------------------------------------------------------------------
+
+def test_diagnostics_reports_known_keys() -> None:
+    r = client.get("/api/diagnostics")
+    assert r.status_code == 200
+    body = r.json()
+    assert "integrations" in body
+    integrations = body["integrations"]
+    for k in ("eia", "noaa", "gemini", "snowflake", "databricks_sql", "huggingface"):
+        assert k in integrations
+    assert body["rag_corpus"]["entries"] >= 1
+
+
+def test_analyze_repo_rejects_non_github_url() -> None:
+    r = client.post(
+        "/api/analyze_repo",
+        json={"repo_url": "https://example.com/not/a/repo"},
+    )
+    assert r.status_code == 400
+
+
+def test_aggregate_repo_sources_byte_cap() -> None:
+    from app.routes.repo import _aggregate_repo_sources
+    from app.services.repo_fetcher import RepoFile
+
+    files = [
+        RepoFile(path="a.py", content="x" * 4000),
+        RepoFile(path="b.py", content="y" * 4000),
+    ]
+    agg = _aggregate_repo_sources(files, max_code_bytes=200)
+    assert len(agg.text.encode("utf-8")) <= 200
+    assert agg.truncated
+    assert agg.file_count >= 1
+
+
+def test_repo_fetcher_extracts_python_from_notebook() -> None:
+    import json as _json
+
+    from app.services.repo_fetcher import extract_python_from_notebook
+
+    nb = {
+        "cells": [
+            {"cell_type": "markdown", "source": "ignore me"},
+            {
+                "cell_type": "code",
+                "source": ["from transformers import AutoModel\n", "AutoModel.from_pretrained('bert-large-uncased')\n"],
+            },
+        ]
+    }
+    code = extract_python_from_notebook(_json.dumps(nb))
+    assert "from_pretrained" in code
+    assert "ignore me" not in code

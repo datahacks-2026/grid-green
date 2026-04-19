@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import CodeEditor from "@/components/CodeEditor";
+import { RepoAnalyzer } from "@/components/RepoAnalyzer";
 import RunAnalysisModal from "@/components/RunAnalysisModal";
 import { StatsCard } from "@/components/StatsCard";
 import { SuggestionSidebar } from "@/components/SuggestionSidebar";
@@ -14,6 +15,7 @@ import {
   type EstimateCarbonResponse,
   findCleanWindow,
   type FindCleanWindowResponse,
+  formatRegionLabel,
   type Region,
 } from "@/lib/api";
 import { SAMPLE_CODE } from "@/lib/sample";
@@ -21,9 +23,13 @@ import type { CarbonAnalysisContext } from "@/components/SuggestionSidebar";
 import type { Suggestion } from "@/types/api";
 
 const REGIONS: Region[] = ["CISO", "ERCO", "PJM", "MISO", "NYIS"];
+type Mode = "code" | "repo";
 
 export default function Home() {
+  const [mode, setMode] = useState<Mode>("code");
   const [code, setCode] = useState(SAMPLE_CODE);
+  /** Source blob returned from POST /api/analyze_repo for grid + timing in repo mode. */
+  const [repoCarbonCode, setRepoCarbonCode] = useState<string | null>(null);
   const [region, setRegion] = useState<Region>("CISO");
   const [grid, setGrid] = useState<CheckGridResponse | null>(null);
   const [patterns, setPatterns] = useState<DetectedPattern[]>([]);
@@ -42,15 +48,36 @@ export default function Home() {
     return () => ctrl.abort();
   }, [region]);
 
+  useEffect(() => {
+    setEstimate(null);
+    setCleanWindow(null);
+    setPatterns([]);
+    setError(null);
+    if (mode === "code") {
+      setRepoCarbonCode(null);
+    }
+  }, [mode]);
+
+  const analysisPayload = mode === "repo" ? (repoCarbonCode ?? "") : code;
+
   const runAnalysis = useCallback(async () => {
     setOpen(true);
     setLoading(true);
     setError(null);
     setEstimate(null);
     setCleanWindow(null);
+    if (!analysisPayload.trim()) {
+      setError(
+        mode === "repo"
+          ? "Scan the repo first — then we can estimate training CO₂ and the best time window from grid forecasts."
+          : "Paste or write some code to analyze.",
+      );
+      setLoading(false);
+      return;
+    }
     try {
       const [est, win] = await Promise.all([
-        estimateCarbon(code, region),
+        estimateCarbon(analysisPayload, region),
         findCleanWindow(region, 4),
       ]);
       setEstimate(est);
@@ -62,7 +89,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [code, region]);
+  }, [analysisPayload, mode, region]);
 
   function handleApplySuggestion(s: Suggestion) {
     setCode((prev) => prev.split(s.original_snippet).join(s.alternative_snippet));
@@ -85,11 +112,44 @@ export default function Home() {
             GridGreen <span className="text-gg-muted">— carbon-aware ML copilot</span>
           </h1>
           <p className="text-xs text-gg-muted">
-            Paste a training script, pick a region, run analysis — greener model swaps on the right.
+            Code: edit + run analysis for grid timing and greener swaps. Repo URL: scan GitHub,
+            then run analysis for the same timing + CO₂ view on aggregated source.
           </p>
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-3">
+          <div
+            role="tablist"
+            aria-label="Input mode"
+            className="flex overflow-hidden rounded border border-gg-border bg-black/30 text-xs"
+          >
+            <button
+              role="tab"
+              aria-selected={mode === "code"}
+              type="button"
+              onClick={() => setMode("code")}
+              className={`px-3 py-1.5 transition ${
+                mode === "code"
+                  ? "bg-gg-accent text-black"
+                  : "text-gg-muted hover:text-gg-text"
+              }`}
+            >
+              Code
+            </button>
+            <button
+              role="tab"
+              aria-selected={mode === "repo"}
+              type="button"
+              onClick={() => setMode("repo")}
+              className={`px-3 py-1.5 transition ${
+                mode === "repo"
+                  ? "bg-gg-accent text-black"
+                  : "text-gg-muted hover:text-gg-text"
+              }`}
+            >
+              Repo URL
+            </button>
+          </div>
           <a
             href="/mcp"
             className="text-xs text-gg-muted underline-offset-2 hover:text-gg-accent hover:underline"
@@ -105,7 +165,7 @@ export default function Home() {
             >
               {REGIONS.map((r) => (
                 <option key={r} value={r}>
-                  {r}
+                  {formatRegionLabel(r)}
                 </option>
               ))}
             </select>
@@ -134,7 +194,13 @@ export default function Home() {
           <button
             type="button"
             onClick={runAnalysis}
-            className="rounded bg-gg-accent px-3 py-1.5 text-sm font-semibold text-black hover:bg-gg-accentDim"
+            disabled={mode === "repo" && !repoCarbonCode?.trim()}
+            title={
+              mode === "repo" && !repoCarbonCode?.trim()
+                ? "Scan a repo first to load source for timing + CO₂ estimate"
+                : undefined
+            }
+            className="rounded bg-gg-accent px-3 py-1.5 text-sm font-semibold text-black hover:bg-gg-accentDim disabled:cursor-not-allowed disabled:opacity-40"
           >
             Run analysis
           </button>
@@ -143,18 +209,29 @@ export default function Home() {
 
       <div className="flex min-h-0 flex-1">
         <section className="min-w-0 flex-1">
-          <CodeEditor value={code} onChange={setCode} patterns={patterns} />
+          {mode === "code" ? (
+            <CodeEditor value={code} onChange={setCode} patterns={patterns} />
+          ) : (
+            <RepoAnalyzer
+              region={region}
+              onAggregatedCode={(agg) => setRepoCarbonCode(agg)}
+              estimate={estimate}
+              cleanWindow={cleanWindow}
+            />
+          )}
         </section>
-        <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-gg-border bg-gg-panel p-3">
-          <StatsCard refreshKey={scoreRefresh} />
-          <SuggestionSidebar
-            code={code}
-            region={region}
-            carbonContext={carbonContext}
-            onApplySuggestion={handleApplySuggestion}
-            onScorecardChange={() => setScoreRefresh((n) => n + 1)}
-          />
-        </aside>
+        {mode === "code" && (
+          <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-gg-border bg-gg-panel p-3">
+            <StatsCard refreshKey={scoreRefresh} />
+            <SuggestionSidebar
+              code={code}
+              region={region}
+              carbonContext={carbonContext}
+              onApplySuggestion={handleApplySuggestion}
+              onScorecardChange={() => setScoreRefresh((n) => n + 1)}
+            />
+          </aside>
+        )}
       </div>
 
       <RunAnalysisModal

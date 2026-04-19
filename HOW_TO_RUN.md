@@ -251,11 +251,26 @@ python -m scripts.build_rag_index --target snowflake
 ### Backend (Person A slice)
 
 - **`GET /ping`**: health check
+- **`GET /api/diagnostics`**: shows which integrations are configured / importable
+  (Snowflake, Databricks, Gemini, EIA, NOAA, Hugging Face, GitHub repo fetcher),
+  plus SQLite path + RAG corpus size. Cheap — does *not* open external connections.
 - **`GET /api/check_grid`**: current intensity + trend + `last_updated`
 - **`GET /api/find_clean_window`**: optimal window + savings + **48h forecast series**
   - Prophet if installed; otherwise a deterministic seasonal-naive fallback
 - **`POST /api/estimate_carbon`**: rules-based estimate + `detected_patterns`
-- **`POST /api/suggest_greener`**: curated HF “greener alternative” suggestions via RAG (TF‑IDF baseline; upgrades if `sentence-transformers` is installed)
+- **`POST /api/suggest_greener`**: curated “greener alternative” suggestions via RAG.
+  Detects model loads from `from_pretrained(...)`, `pipeline(model=...)`,
+  `LLM(model=...)`, `ChatOpenAI(model=...)`, `client.chat.completions.create(model=...)`,
+  bare HF org/model literals (`meta-llama/...`, `mistralai/...`, etc.), API-only
+  ids (`gpt-4-turbo`, `claude-3-opus-...`, `gemini-1.5-pro`, ...), and top-level
+  assignments like `MODEL_ID = "..."`. TF-IDF baseline; upgrades if
+  `sentence-transformers` is installed.
+- **`POST /api/analyze_repo`**: scan a public GitHub repo for greener-model swaps.
+  Body: `{ "repo_url": "https://github.com/owner/repo", "ref"?, "region"? }`.
+  Response also includes **`aggregated_code_for_estimate`** (joined `.py` / notebook
+  cells, byte-capped like pasted code) so the UI can call **`POST /api/estimate_carbon`**
+  and **`GET /api/find_clean_window`** for the same “when to run” / forecast flow as code mode.
+  Set `GITHUB_TOKEN` to raise the API rate limit / scan private repos.
 - **Optional context**
   - **`GET /api/context/weather`**: NOAA narrative layer (can 502 if upstream is flaky)
   - **`GET /api/context/campus_heat`**: Scripps-style heat map aggregate from bundled sample CSV
@@ -273,8 +288,15 @@ python -m scripts.build_rag_index --target snowflake
 
 ### Frontend (Person A slice)
 
-- Monaco editor + inline decorations + region selector
-- “Run analysis” modal calling estimate + grid forecast endpoints and charting the 48h series
+- **Code / Repo URL** input toggle in the header
+  - **Code mode**: Monaco editor + inline decorations + live suggestion sidebar (no
+    "Run analysis" required to see swaps; clicking it enriches each suggestion with
+    grid + script CO₂ context).
+  - **Repo URL mode**: paste a public GitHub URL → the backend downloads the
+    zipball, runs greener-model detection across `.py` / `.ipynb` files, and
+    renders per-file suggestions.
+- Region selector
+- "Run analysis" modal calling estimate + grid forecast endpoints and charting the 48h series
 - **`/mcp` page** (`frontend/src/app/mcp/page.tsx`): copy/paste helper for Claude Desktop wiring
 
 ### Tooling / integration files
@@ -291,3 +313,36 @@ python -m scripts.build_rag_index --target snowflake
 - **Run uvicorn from `backend/`** (recommended) so module paths and SQLite paths behave predictably.
 - If SQLite ends up under an unexpected nested folder, fix it by setting **`SQLITE_PATH`** explicitly (recommended: `data/gridgreen.sqlite` when cwd is `backend/`).
 - NOAA and EIA are **external services**: failures should be treated as upstream flakiness, not necessarily app bugs.
+
+---
+
+## Verifying integrations
+
+Quickest end-to-end check (with the API running on `:8000`):
+
+```bash
+# 1. Liveness + which integrations the process can see.
+curl -s http://127.0.0.1:8000/api/diagnostics | python -m json.tool
+
+# 2. Suggestions for HF, OpenAI, and assignment-style model ids.
+curl -s -X POST http://127.0.0.1:8000/api/suggest_greener \
+  -H 'content-type: application/json' \
+  -d '{"code":"MODEL_ID = \"google/flan-t5-xxl\"\nfrom openai import OpenAI\nOpenAI().chat.completions.create(model=\"gpt-4-turbo\", messages=[])\n"}' \
+  | python -m json.tool
+
+# 3. Repo-mode scan against a small public repo.
+curl -s -X POST http://127.0.0.1:8000/api/analyze_repo \
+  -H 'content-type: application/json' \
+  -d '{"repo_url":"https://github.com/huggingface/transformers","ref":"main"}' \
+  | python -m json.tool | head -40
+```
+
+Live external handshakes (Snowflake / Databricks SQL warehouses) are intentionally
+*not* part of `/api/diagnostics` because they can hang. Use the dedicated smoke
+scripts when you need them:
+
+```bash
+cd backend && source ../.venv/bin/activate
+python -m scripts.databricks_sql_smoke   # Databricks SQL warehouse
+python -m scripts.build_rag_index --target snowflake   # Snowflake Cortex (extras only)
+```

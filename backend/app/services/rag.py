@@ -195,6 +195,14 @@ class RagIndex:
                 # Only suggest when the target is genuinely smaller.
                 if entry.params_to_b >= entry.params_from_b * 0.95:
                     continue
+                # Require the corpus `from` to actually be the user's model id
+                # (with or without the HF `org/` prefix). Without this we surface
+                # unrelated swaps and worst case rewrite the wrong substring.
+                if not _ids_match(model_id, entry.from_model):
+                    continue
+                # Don't recommend a swap the user already applied.
+                if _ids_match(model_id, entry.to_model):
+                    continue
                 key = (model_id.lower(), entry.to_model.lower())
                 if key in seen:
                     continue
@@ -242,29 +250,143 @@ class RagIndex:
 # Code parsing
 # ---------------------------------------------------------------------------
 
-_FROM_PRETRAINED_RE = re.compile(
-    r"""\bfrom_pretrained\s*\(\s*['"]([^'"]+)['"]""",
+# Calls that explicitly take a model id as their first positional arg or as
+# `model=`/`repo_id=`/`model_name=`. We deliberately keep the regex broad —
+# false positives are filtered later by `_looks_like_model_id`.
+_CALL_RE = re.compile(
+    r"""\b(?:from_pretrained|pipeline|SentenceTransformer|CrossEncoder|LLM|"""
+    r"""ChatOpenAI|ChatAnthropic|ChatGoogleGenerativeAI|HuggingFaceEndpoint|"""
+    r"""HuggingFaceHub|HuggingFacePipeline|AutoModel[A-Za-z]*|AutoTokenizer|"""
+    r"""AutoProcessor|DiffusionPipeline|StableDiffusionPipeline|"""
+    r"""AutoPipelineForText2Image|AutoPipelineForImage2Image|"""
+    r"""WhisperForConditionalGeneration|whisper\.load_model)\s*\(""",
     re.IGNORECASE,
 )
-_PIPELINE_RE = re.compile(
-    r"""\bpipeline\s*\([^)]*model\s*=\s*['"]([^'"]+)['"]""",
-    re.IGNORECASE | re.DOTALL,
-)
-_DIFFUSERS_RE = re.compile(
-    r"""\b(?:DiffusionPipeline|StableDiffusionPipeline|AutoPipelineForText2Image)\.from_pretrained\s*\(\s*['"]([^'"]+)['"]""",
+
+# `model=...`, `model_name=...`, `model_id=...`, `repo_id=...` keyword args.
+_KWARG_RE = re.compile(
+    r"""\b(?:model|model_name|model_id|repo_id|model_path|pretrained_model_name_or_path)"""
+    r"""\s*=\s*['"]([^'"\n]{2,200})['"]""",
     re.IGNORECASE,
 )
+
+# `MODEL_ID = "..."`, `model_name = "..."`, etc. Top-level assignments.
+_ASSIGN_RE = re.compile(
+    r"""^\s*(?:MODEL(?:_ID|_NAME)?|model(?:_id|_name)?|HF_MODEL|CHECKPOINT)"""
+    r"""\s*[:=]\s*['"]([^'"\n]{2,200})['"]""",
+    re.IGNORECASE,
+)
+
+# Bare quoted strings — last resort: pull every string literal and filter by shape.
+_STRING_LITERAL_RE = re.compile(r"""['"]([A-Za-z0-9_./@:\-]{3,200})['"]""")
+
+_KNOWN_HF_ORGS = (
+    "meta-llama/", "mistralai/", "openai/", "google/", "microsoft/", "facebook/",
+    "stabilityai/", "runwayml/", "BAAI/", "sentence-transformers/", "tiiuae/",
+    "EleutherAI/", "Qwen/", "deepset/", "huggingface/", "nvidia/", "anthropic/",
+    "cohere/", "ai21/", "databricks/", "mosaicml/", "01-ai/", "Salesforce/",
+    "bigscience/", "bigcode/", "intfloat/", "thenlper/", "jinaai/", "mixedbread-ai/",
+    "tiiuae/", "togethercomputer/", "WizardLM/", "lmsys/",
+)
+
+# Lower-cased prefixes for bare model names (no org/).
+_KNOWN_MODEL_PREFIXES = (
+    "gpt-", "gpt2", "gpt3", "gpt4", "o1-", "o3-", "o4-",
+    "claude-", "claude2", "claude3",
+    "gemini-", "gemma-",
+    "llama-", "llama2", "llama3", "llama-2", "llama-3", "llama-4",
+    "mistral-", "mixtral-", "codestral-",
+    "phi-", "phi2", "phi3", "phi4",
+    "qwen-", "qwen2", "qwen3",
+    "yi-", "deepseek-",
+    "bert-", "roberta-", "distilbert", "albert-", "electra-", "xlnet-", "xlm-",
+    "t5-", "flan-t5-", "ul2-", "bart-", "pegasus-", "mbart-", "m2m100-",
+    "vit-", "deit-", "swin-", "beit-", "convnext-", "efficientnet-",
+    "resnet", "mobilenet", "yolov", "detr-",
+    "clip-", "blip-", "siglip-", "owl-vit",
+    "stable-diffusion", "sdxl", "sd-turbo", "kandinsky", "playground-",
+    "whisper-", "wav2vec2-", "hubert-", "mms-",
+    "command-", "command-r", "embed-",
+)
+
+
+def _looks_like_model_id(s: str) -> bool:
+    if not s or len(s) < 2 or len(s) > 200:
+        return False
+    if any(ch in s for ch in (" ", "\n", "\t")):
+        return False
+    if s.startswith(("./", "../", "/", "http://", "https://")):
+        return "huggingface.co/" in s
+    if s.endswith((".py", ".json", ".yaml", ".yml", ".txt", ".csv", ".md", ".png", ".jpg")):
+        return False
+    if any(s.startswith(o) for o in _KNOWN_HF_ORGS):
+        return True
+    sl = s.lower()
+    return any(sl.startswith(p) for p in _KNOWN_MODEL_PREFIXES)
 
 
 def _extract_model_hits(code: str) -> List[Tuple[int, str, str]]:
-    """Return (line_number, original_snippet, model_id) for each match."""
+    """Return (line_number, original_snippet, model_id) for each match.
+
+    Strategy (in order, deduped):
+    1. Direct kwargs: `model=...`, `repo_id=...`, etc.
+    2. Top-level assignments: `MODEL_ID = "..."`.
+    3. First positional arg of known model-loading calls (e.g. `from_pretrained("x")`).
+    4. Any bare string literal that looks like a model id (HF org/name or known prefix).
+    """
     hits: List[Tuple[int, str, str]] = []
+    seen: set[Tuple[int, str]] = set()
+
+    def _add(line_no: int, snippet: str, candidate: str) -> None:
+        if not _looks_like_model_id(candidate):
+            return
+        key = (line_no, candidate.lower())
+        if key in seen:
+            return
+        seen.add(key)
+        hits.append((line_no, snippet, candidate))
+
     for idx, raw in enumerate(code.splitlines(), start=1):
         line = raw.strip()
-        for regex in (_FROM_PRETRAINED_RE, _PIPELINE_RE, _DIFFUSERS_RE):
-            for m in regex.finditer(line):
-                hits.append((idx, line, m.group(1)))
+        if not line or line.startswith("#"):
+            continue
+
+        for m in _KWARG_RE.finditer(line):
+            _add(idx, line, m.group(1))
+
+        am = _ASSIGN_RE.match(line)
+        if am:
+            _add(idx, line, am.group(1))
+
+        # Positional first arg of a known call (heuristic — parse the literal
+        # that follows the opening paren until the next ')' or ',').
+        for cm in _CALL_RE.finditer(line):
+            tail = line[cm.end():]
+            lit = _first_string_literal(tail)
+            if lit:
+                _add(idx, line, lit)
+
+        # Last resort: any bare string literal that "looks like" a model id.
+        # This catches `MODEL = "gpt-4o-mini"` style as well as comments-stripped
+        # string constants embedded mid-call.
+        for sm in _STRING_LITERAL_RE.finditer(line):
+            _add(idx, line, sm.group(1))
+
     return hits
+
+
+def _first_string_literal(s: str) -> str | None:
+    m = re.match(r"""\s*['"]([^'"\n]{2,200})['"]""", s)
+    return m.group(1) if m else None
+
+
+def _ids_match(a: str, b: str) -> bool:
+    """True when `a` and `b` are the same model id (case-insensitive,
+    optional `org/` prefix on either side)."""
+    al, bl = a.lower(), b.lower()
+    if al == bl:
+        return True
+    return al.split("/", 1)[-1] == bl.split("/", 1)[-1]
 
 
 def _swap(snippet: str, old: str, new: str) -> str:

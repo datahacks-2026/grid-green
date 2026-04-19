@@ -68,7 +68,7 @@ export function SuggestionSidebar({
   );
 
   useEffect(() => {
-    if (!code.trim() || !carbonContext?.estimate) {
+    if (!code.trim()) {
       setSuggestions([]);
       setLoading(false);
       setError(null);
@@ -87,7 +87,7 @@ export function SuggestionSidebar({
       }
     }, 600);
     return () => clearTimeout(handle);
-  }, [payload, carbonContext?.estimate]);
+  }, [payload]);
 
   async function handleApply(s: Suggestion) {
     onApplySuggestion(s);
@@ -117,23 +117,15 @@ export function SuggestionSidebar({
       </header>
 
       {!hasAnalysis && (
-        <div className="space-y-2 rounded-md border border-gg-border bg-black/20 p-3 text-xs leading-relaxed text-gg-text">
-          <p>
-            <span className="font-semibold text-gg-accent">Step 1 — same model.</span> Click{" "}
-            <strong>Run analysis</strong> first: grid intensity, a cleaner time window, and estimated
-            CO₂ for <em>this</em> script (no model change).
-          </p>
-          <p className="text-gg-muted">
-            <span className="font-semibold text-gg-text">Step 2 — other models.</span> Alternative
-            model swaps load here after Step 1 so they can use those numbers in the explanations.
-          </p>
-        </div>
+        <p className="rounded-md border border-gg-border bg-black/20 px-2 py-1.5 text-[10px] leading-snug text-gg-muted">
+          Tip: click <strong className="text-gg-text">Run analysis</strong> to enrich each
+          suggestion with live grid intensity and a script-specific CO₂ estimate.
+        </p>
       )}
 
       {hasAnalysis && (
         <p className="rounded-md border border-gg-accent/30 bg-gg-accent/10 px-2 py-1.5 text-[10px] leading-snug text-gg-text">
           Using your last <strong>Run analysis</strong> (grid + script CO₂) to rank and explain swaps.
-          If you change the script a lot, run analysis again before trusting swaps.
         </p>
       )}
 
@@ -141,10 +133,12 @@ export function SuggestionSidebar({
         <p className="rounded-md bg-rose-500/10 p-2 text-xs text-rose-300">{error}</p>
       )}
 
-      {hasAnalysis && !loading && suggestions.length === 0 && !error && (
+      {!loading && suggestions.length === 0 && !error && (
         <p className="rounded-md border border-dashed border-gg-border p-3 text-xs text-gg-muted">
-          No swap suggestions — use <code className="font-mono text-gg-accent">from_pretrained(&quot;…&quot;)</code>{" "}
-          with a model in the corpus, then click <strong>Run analysis</strong> for grid-aware reasoning.
+          No swap suggestions yet. Try a known model id like{" "}
+          <code className="font-mono text-gg-accent">google/flan-t5-xxl</code>,{" "}
+          <code className="font-mono text-gg-accent">meta-llama/Llama-3-70B</code>, or{" "}
+          <code className="font-mono text-gg-accent">model=&quot;gpt-4-turbo&quot;</code>.
         </p>
       )}
 

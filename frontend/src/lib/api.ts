@@ -7,6 +7,21 @@ import type {
 } from "@/types/api";
 
 export type Region = "CISO" | "ERCO" | "PJM" | "MISO" | "NYIS";
+
+/** EIA balancing-authority names — same grid areas as `backend/app/services/regions.py`. */
+export const REGION_FULL_NAMES: Record<Region, string> = {
+  CISO: "California ISO",
+  ERCO: "ERCOT (Texas)",
+  PJM: "PJM Interconnection",
+  MISO: "Midcontinent ISO",
+  NYIS: "New York ISO",
+};
+
+/** e.g. "California ISO (CISO)" — for selects and headings. */
+export function formatRegionLabel(code: Region): string {
+  return `${REGION_FULL_NAMES[code]} (${code})`;
+}
+
 export type Confidence = "low" | "medium" | "high";
 export type Impact = "low" | "medium" | "high";
 export type Trend = "rising" | "falling" | "flat";
@@ -109,12 +124,53 @@ export type SuggestGreenerPayload = {
   impact_focus_lines?: number[];
 };
 
+export type AnalyzeRepoRequest = {
+  repo_url: string;
+  ref?: string;
+  region?: Region;
+  top_k_per_file?: number;
+  max_files_with_hits?: number;
+};
+
+export type AnalyzeRepoResponse = {
+  repo_url: string;
+  owner: string;
+  repo: string;
+  files_scanned: number;
+  files_with_hits: number;
+  total_suggestions: number;
+  files: Array<{
+    path: string;
+    suggestions: import("@/types/api").Suggestion[];
+  }>;
+  /** Joined source (byte-capped) — POST to `/api/estimate_carbon` for grid + timing. */
+  aggregated_code_for_estimate: string;
+  aggregate_file_count: number;
+  aggregate_truncated: boolean;
+};
+
+export type Diagnostics = {
+  time: string;
+  env: string;
+  integrations: Record<string, Record<string, unknown>>;
+  storage: { sqlite_path: string; sqlite_exists: boolean; sqlite_size_bytes: number };
+  rag_corpus: { path: string; entries: number };
+};
+
 export const api = {
   suggestGreener: (payload: SuggestGreenerPayload) =>
     jsonFetch<SuggestResponse>("/api/suggest_greener", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  analyzeRepo: (payload: AnalyzeRepoRequest) =>
+    jsonFetch<AnalyzeRepoResponse>("/api/analyze_repo", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  diagnostics: () => jsonFetch<Diagnostics>("/api/diagnostics"),
 
   getScorecard: (sessionId: string) =>
     jsonFetch<Scorecard>(
