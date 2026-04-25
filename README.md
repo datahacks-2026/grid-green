@@ -298,7 +298,7 @@ GridGreen includes re-runnable scripts for each technology. All scripts run from
 ### Integrations
 - [ ] VS Code extension
 - [ ] Cursor plugin
-- [ ] CI/CD integration — carbon budget checks in GitHub Actions
+- [ ] CI/CD integration, carbon budget checks in GitHub Actions
 - [ ] Support closed-API models (GPT-4, Claude) beyond flat inference proxy
 
 ---
