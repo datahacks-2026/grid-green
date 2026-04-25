@@ -45,7 +45,7 @@ It is available as a web app (Monaco editor + analysis UI) and as an MCP server 
 └──┬──────────┬───────────────────────────────────────┘
    │          │
 ┌──▼──────┐ ┌─▼────────────────────────┐
-│ SQLite  │ │ Optional cloud backends  │
+│ SQLite  │ │ Cloud backends  │
 │ (local) │ │ Snowflake, Databricks,   │
 │         │ │ Brev GPU, W&B, Gemini    │
 └─────────┘ └──────────────────────────┘
@@ -206,7 +206,7 @@ For metered energy, pair GridGreen with [CodeCarbon](https://codecarbon.io/), RA
 | Data | EIA API, SQLite, Prophet / seasonal-naive forecasting |
 | ML/RAG | Sentence-Transformers (MiniLM), TF-IDF fallback, curated HF corpus |
 | AI | Gemini API (optional NL reasoning) |
-| Cloud (optional) | Snowflake Cortex, Databricks DLT, AWS SageMaker, NVIDIA Brev, W&B |
+| Cloud  | Snowflake Cortex, Databricks DLT, AWS SageMaker, NVIDIA Brev, W&B |
 | Agent | MCP server compatible with Claude Desktop, Cursor, and Claude Code |
 
 ---
