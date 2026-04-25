@@ -2,7 +2,11 @@
 
 **Carbon-aware copilot for ML engineers.**
 
-> Built at [DataHacks 2026](https://datahacks.ds3ucsd.com/) · Theme: Environment, Climate & Energy Sciences · Tracks: AI/ML + Cloud
+> 🏆 **Cloud Track Winner** · **MLH Best Use of Snowflake API** - DataHacks 2026  
+> Built at [DataHacks 2026](https://datahacks.ds3ucsd.com/) · [Devpost](https://devpost.com/software/greenwatts) 
+>  · Theme: Environment, Climate & Energy Sciences
+>  · Tracks: AI/ML + Cloud
+
 
 GridGreen analyzes ML training scripts, estimates their compute carbon footprint using published scaling laws, pairs that with real-time grid carbon intensity from the US EIA, and tells you **when** to run and **what smaller model** to consider before a single GPU-hour is burned.
 
