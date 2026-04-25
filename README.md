@@ -2,7 +2,7 @@
 
 **Carbon-aware copilot for ML engineers.**
 
-> Built at [DataHacks 2026](https://datahacks.ucsd.edu/) · Theme: Environment, Climate & Energy Sciences · Tracks: AI/ML + Cloud
+> Built at [DataHacks 2026](https://datahacks.ds3ucsd.com/) · Theme: Environment, Climate & Energy Sciences · Tracks: AI/ML + Cloud
 
 GridGreen analyzes ML training scripts, estimates their compute carbon footprint using published scaling laws, pairs that with real-time grid carbon intensity from the US EIA, and tells you **when** to run and **what smaller model** to consider before a single GPU-hour is burned.
 
@@ -249,9 +249,9 @@ curl -s http://127.0.0.1:8000/api/diagnostics | python3 -m json.tool
 
 ---
 
-## Sponsor Integrations
+## Technologies Integrations
 
-GridGreen includes re-runnable scripts for each sponsor technology. All scripts run from `backend/`.
+GridGreen includes re-runnable scripts for each technology. All scripts run from `backend/`.
 
 | Sponsor | Script | What it does |
 |---|---|---|
@@ -261,7 +261,6 @@ GridGreen includes re-runnable scripts for each sponsor technology. All scripts 
 | NVIDIA Brev | `python -m scripts.brev_embed` | GPU embedding workload with optional W&B logging |
 | Google Gemini | Automatic when `GEMINI_API_KEY` is set | NL reasoning polish for suggestions |
 
-See [`CLOUD_SETUP.md`](CLOUD_SETUP.md) for step-by-step setup of each service.
 
 ---
 
@@ -271,8 +270,6 @@ See [`CLOUD_SETUP.md`](CLOUD_SETUP.md) for step-by-step setup of each service.
 |---|---|
 | [`CONTRACT.md`](CONTRACT.md) | API request/response schemas |
 | [`HOW_TO_RUN.md`](HOW_TO_RUN.md) | Detailed setup, env vars, EIA verification |
-| [`CLOUD_SETUP.md`](CLOUD_SETUP.md) | Step-by-step setup for each cloud integration |
-| [`PLANNING.md`](PLANNING.md) | Internal hackathon planning (schedules, work splits, demo script) |
 | [`evaluation/README.md`](evaluation/README.md) | Benchmark methodology and workload descriptions |
 
 ---
