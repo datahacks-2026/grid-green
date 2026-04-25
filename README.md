@@ -11,6 +11,15 @@ It is available as a web app (Monaco editor + analysis UI) and as an MCP server 
 > *"Every `model.fit()` is a climate decision. GridGreen makes that decision visible."*
 
 ---
+## Demo
+
+[![GridGreen Demo](https://img.youtube.com/vi/RwTjxSpgrts/maxresdefault.jpg)](https://youtu.be/RwTjxSpgrts)
+
+---
+
+> **Status:** Local development - clone and run locally.  
+> MCP server works with Claude Desktop and Cursor out of the box.  
+> Cloud deployment planned after rigorous evaluation and model generalization. 
 
 ## Features
 
@@ -271,6 +280,26 @@ GridGreen includes re-runnable scripts for each technology. All scripts run from
 | [`CONTRACT.md`](CONTRACT.md) | API request/response schemas |
 | [`HOW_TO_RUN.md`](HOW_TO_RUN.md) | Detailed setup, env vars, EIA verification |
 | [`evaluation/README.md`](evaluation/README.md) | Benchmark methodology and workload descriptions |
+
+---
+
+## Roadmap & Next Steps
+
+### Evaluation & Reliability
+- [ ] Ground-truth validation against runtime telemetry (CodeCarbon, DCGM, RAPL)
+- [ ] Dataset-size aware carbon estimation (currently static analysis only)
+- [ ] Expand model catalog beyond 58 curated pairs
+- [ ] Multi-region grid support beyond 5 EIA balancing authorities
+
+### Deployment
+- [ ] Cloud deployment (FastAPI on Railway, Next.js on Vercel)
+- [ ] Remote MCP server (currently local-only)
+
+### Integrations
+- [ ] VS Code extension
+- [ ] Cursor plugin
+- [ ] CI/CD integration — carbon budget checks in GitHub Actions
+- [ ] Support closed-API models (GPT-4, Claude) beyond flat inference proxy
 
 ---
 
