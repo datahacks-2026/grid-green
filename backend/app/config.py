@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # - local      : SQLite only (default; fastest/stable for dev)
     # - databricks : Databricks SQL only (falls back to SQLite on query/import errors)
     # - auto       : Databricks first when configured, else SQLite
-    gridgreen_serve_from: str = "auto"
+    gridgreen_serve_from: str = "local"
 
     # Precomputed RAG embedding cache (built by SageMaker / Brev / run_pipeline).
     # Loaded by `app.services.embedding_cache` at startup.

@@ -62,3 +62,6 @@ backend/data/rag_embeddings.json
 
 # W&B local logs
 backend/wandb/
+
+# Claude/Cursor local agent artifacts
+.claude/

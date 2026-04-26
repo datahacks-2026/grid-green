@@ -22,11 +22,15 @@ import {
   type WeatherContext,
 } from "@/lib/api";
 import { SAMPLE_CODE } from "@/lib/sample";
+import { getSessionId } from "@/lib/session";
 import type { CarbonAnalysisContext } from "@/components/SuggestionSidebar";
 import type { Suggestion } from "@/types/api";
 
 const REGIONS: Region[] = ["CISO", "ERCO", "PJM", "MISO", "NYIS"];
 type Mode = "code" | "repo";
+const WINDOW_LOOKAHEADS = [4, 12, 24, 48] as const;
+type WindowLookahead = (typeof WINDOW_LOOKAHEADS)[number];
+type CleanWindowByLookahead = Partial<Record<WindowLookahead, FindCleanWindowResponse>>;
 
 export default function Home() {
   const [mode, setMode] = useState<Mode>("code");
@@ -38,6 +42,9 @@ export default function Home() {
   const [patterns, setPatterns] = useState<DetectedPattern[]>([]);
   const [estimate, setEstimate] = useState<EstimateCarbonResponse | null>(null);
   const [cleanWindow, setCleanWindow] = useState<FindCleanWindowResponse | null>(null);
+  const [cleanWindowsByLookahead, setCleanWindowsByLookahead] = useState<CleanWindowByLookahead>(
+    {},
+  );
   /** Top RAG suggestion shown in the pre-run modal (Gemini-polished when configured). */
   const [modalSuggestions, setModalSuggestions] = useState<Suggestion[]>([]);
   /** Optional NOAA + Scripps context surfaced below the 48h chart. Both are best-effort. */
@@ -59,6 +66,7 @@ export default function Home() {
   useEffect(() => {
     setEstimate(null);
     setCleanWindow(null);
+    setCleanWindowsByLookahead({});
     setPatterns([]);
     setModalSuggestions([]);
     setWeather(null);
@@ -77,6 +85,7 @@ export default function Home() {
     setError(null);
     setEstimate(null);
     setCleanWindow(null);
+    setCleanWindowsByLookahead({});
     setModalSuggestions([]);
     setWeather(null);
     setCampusHeat(null);
@@ -91,12 +100,22 @@ export default function Home() {
     }
     try {
       // Phase 1 — primary numbers we can't render the modal without.
-      const [est, win] = await Promise.all([
+      const [est, win4, win12, win24, win48] = await Promise.all([
         estimateCarbon(analysisPayload, region),
-        findCleanWindow(region, 4),
+        findCleanWindow(region, 4, 4),
+        findCleanWindow(region, 4, 12),
+        findCleanWindow(region, 4, 24),
+        findCleanWindow(region, 4, 48),
       ]);
+      const windows: CleanWindowByLookahead = {
+        4: win4,
+        12: win12,
+        24: win24,
+        48: win48,
+      };
       setEstimate(est);
-      setCleanWindow(win);
+      setCleanWindow(win48);
+      setCleanWindowsByLookahead(windows);
       setPatterns(est.detected_patterns);
 
       // Phase 2 — optional enrichments (RAG + NOAA + Scripps). Each is
@@ -115,9 +134,9 @@ export default function Home() {
           region,
           co2_grams_now: est.co2_grams_now,
           co2_grams_optimal: est.co2_grams_optimal,
-          current_gco2_kwh: win.current_gco2_kwh,
-          optimal_window_start: win.optimal_start,
-          co2_savings_pct_window: win.co2_savings_pct,
+          current_gco2_kwh: win48.current_gco2_kwh,
+          optimal_window_start: win48.optimal_start,
+          co2_savings_pct_window: win48.co2_savings_pct,
           impact_focus_lines: [...focusLines].sort((a, b) => a - b),
         }),
         api.weather(region),
@@ -138,6 +157,19 @@ export default function Home() {
 
   function handleApplySuggestion(s: Suggestion) {
     setCode((prev) => prev.split(s.original_snippet).join(s.alternative_snippet));
+  }
+
+  async function handleDeferRun(co2SavedGrams: number) {
+    try {
+      await api.recordEvent({
+        session_id: getSessionId(),
+        event: "run_deferred",
+        co2_saved_grams: co2SavedGrams,
+      });
+      setScoreRefresh((n) => n + 1);
+    } catch {
+      // non-blocking UX; modal remains usable even if scorecard write fails
+    }
   }
 
   const carbonContext = useMemo<CarbonAnalysisContext>(
@@ -282,6 +314,7 @@ export default function Home() {
       <RunAnalysisModal
         open={open}
         onClose={() => setOpen(false)}
+        onDeferRun={handleDeferRun}
         region={region}
         loading={loading}
         error={error}
@@ -290,6 +323,7 @@ export default function Home() {
         suggestions={modalSuggestions}
         weather={weather}
         campusHeat={campusHeat}
+      cleanWindowsByLookahead={cleanWindowsByLookahead}
       />
     </main>
   );

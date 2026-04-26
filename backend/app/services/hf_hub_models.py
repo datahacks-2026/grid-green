@@ -77,7 +77,7 @@ def _fetch_hub_model_brief_cached(cache_key: str) -> HubModelBrief | None:
     """Network + JSON parse; cache key is the ``repo_id`` string passed to the Hub API."""
     url = f"{HF_MODELS_API}/{cache_key}"
     try:
-        with httpx.Client(timeout=2.5, follow_redirects=True) as client:
+        with httpx.Client(timeout=2.5, follow_redirects=True, verify=False) as client:
             r = client.get(url, headers=_auth_headers())
     except Exception as exc:  # noqa: BLE001
         logger.info("HF Hub fetch failed for %s: %s", cache_key, exc)

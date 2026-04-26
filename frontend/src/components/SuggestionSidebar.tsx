@@ -142,9 +142,9 @@ export function SuggestionSidebar({
         </p>
       )}
 
-      {suggestions.map((s) => (
+      {suggestions.map((s, idx) => (
         <SuggestionCard
-          key={`${s.line}-${s.alternative_snippet}`}
+          key={`${s.line}-${s.original_snippet}-${s.alternative_snippet}-${s.citation}-${idx}`}
           suggestion={s}
           onApply={handleApply}
         />

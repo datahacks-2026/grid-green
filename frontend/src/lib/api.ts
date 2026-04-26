@@ -104,10 +104,11 @@ export async function checkGrid(
 export async function findCleanWindow(
   region: Region,
   hoursNeeded = 4,
+  maxDelayHours = 48,
   signal?: AbortSignal,
 ): Promise<FindCleanWindowResponse> {
   const res = await fetch(
-    `/api/find_clean_window?region=${region}&hours_needed=${hoursNeeded}`,
+    `/api/find_clean_window?region=${region}&hours_needed=${hoursNeeded}&max_delay_hours=${maxDelayHours}`,
     { signal },
   );
   return jsonOrThrow(res);

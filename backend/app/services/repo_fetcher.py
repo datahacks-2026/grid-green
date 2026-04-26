@@ -83,7 +83,7 @@ def fetch_repo_files(
         headers["Authorization"] = f"Bearer {token}"
 
     try:
-        with httpx.Client(timeout=timeout_s, follow_redirects=True) as client:
+        with httpx.Client(timeout=timeout_s, follow_redirects=True, verify=False) as client:
             resp = client.get(api_url, headers=headers)
     except httpx.HTTPError as exc:
         raise RepoFetchError(f"GitHub fetch failed: {exc}") from exc

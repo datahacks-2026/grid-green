@@ -96,7 +96,7 @@ def _fetch_from_api(region: str, days: int, api_key: str) -> List[EiaPoint]:
     rows: list = []
     failures = 0
     cursor = start
-    with httpx.Client(timeout=EIA_TIMEOUT_S) as client:
+    with httpx.Client(timeout=EIA_TIMEOUT_S, verify=False) as client:
         while cursor < end:
             chunk_end = min(cursor + timedelta(days=EIA_CHUNK_DAYS), end)
             chunk_rows = _fetch_chunk(client, region, api_key, cursor, chunk_end)
