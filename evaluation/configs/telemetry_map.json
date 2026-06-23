@@ -1,0 +1,8 @@
+{
+  "_about": "Map CodeCarbon project_name values to GridGreen workload_id keys.",
+  "project_to_workload": {
+    "llm_flan_xxl": "llm_flan_xxl",
+    "llm_llama_70b": "llm_llama_70b",
+    "classical_rf_2000": "classical_rf_2000"
+  }
+}

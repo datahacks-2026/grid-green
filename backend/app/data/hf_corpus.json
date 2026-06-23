@@ -638,6 +638,39 @@
       "citation": "Microsoft, Phi-3.5 release, 2024.",
       "reasoning": "If your prompts fit in 4k tokens, the original Phi-3 mini-4k is a slightly cheaper drop-in replacement for phi-3.5-mini.",
       "tags": ["llm", "decoder", "phi"]
+    },
+    {
+      "from": "google/gemma-2-27b-it",
+      "to": "google/gemma-2-9b-it",
+      "params_from_b": 27.0,
+      "params_to_b": 9.0,
+      "carbon_saved_pct": 67,
+      "performance_retained_pct": 92,
+      "citation": "Google, Gemma 2 technical report, 2024. https://arxiv.org/abs/2408.00118",
+      "reasoning": "Gemma-2-9B-it matches most instruction tasks at ~33% of the 27B compute budget.",
+      "tags": ["llm", "decoder", "gemma"]
+    },
+    {
+      "from": "meta-llama/Llama-3.1-70B",
+      "to": "meta-llama/Llama-3.1-8B",
+      "params_from_b": 70.0,
+      "params_to_b": 8.0,
+      "carbon_saved_pct": 89,
+      "performance_retained_pct": 87,
+      "citation": "AI@Meta, Llama 3.1 Model Card, 2024.",
+      "reasoning": "Llama-3.1-8B retains strong chat quality for most fine-tunes; 70B is only needed for hardest reasoning.",
+      "tags": ["llm", "decoder", "llama"]
+    },
+    {
+      "from": "deepseek-ai/DeepSeek-V2",
+      "to": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+      "params_from_b": 236.0,
+      "params_to_b": 16.0,
+      "carbon_saved_pct": 93,
+      "performance_retained_pct": 84,
+      "citation": "DeepSeek-AI, DeepSeek-V2 technical report, 2024.",
+      "reasoning": "Coder-V2-Lite covers most code-generation fine-tunes at a fraction of V2's MoE parameter count.",
+      "tags": ["llm", "decoder", "deepseek", "code"]
     }
   ]
 }

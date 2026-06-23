@@ -11,13 +11,20 @@ import sys
 
 PATTERNS = [
     re.compile(r"BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY"),
+    # Provider-specific tokens
     re.compile(r"ghp_[A-Za-z0-9]{20,}"),
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
-    re.compile(r"sk-[A-Za-z0-9]{20,}"),
-    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"sk-[A-Za-z0-9]{20,}"),                 # OpenAI / generic
+    re.compile(r"AKIA[0-9A-Z]{16}"),                    # AWS access key
+    re.compile(r"AIza[0-9A-Za-z_-]{35}"),               # Google / Gemini API key
+    re.compile(r"dapi[a-f0-9]{32}"),                    # Databricks PAT
+    re.compile(r"wandb_v1_[A-Za-z0-9]{20,}"),           # Weights & Biases
+    re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),        # Slack
+    re.compile(r"hf_[A-Za-z0-9]{30,}"),                 # HuggingFace
+    # Generic KEY=VALUE assignments (quoted OR unquoted — .env files use unquoted)
     re.compile(
         r"(?i)(api[_-]?key|token|secret|password|passwd|private[_-]?key|access[_-]?key)"
-        r"\s*[:=]\s*[\"'][^\"'\n]{8,}[\"']"
+        r"\s*[:=]\s*[\"']?[A-Za-z0-9/+_\-=.]{16,}[\"']?"
     ),
 ]
 
@@ -41,6 +48,9 @@ def scan_file(path: pathlib.Path) -> list[tuple[int, str]]:
     for lineno, line in enumerate(text.splitlines(), 1):
         low = line.lower()
         if any(h in low for h in ALLOW_HINTS):
+            continue
+        # Skip code that passes config/settings objects — not literal secrets.
+        if re.search(r"(settings\.|os\.environ|getenv\(|environ\.get)", line):
             continue
         if any(p.search(line) for p in PATTERNS):
             findings.append((lineno, line.strip()))

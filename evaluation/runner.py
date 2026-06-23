@@ -19,10 +19,17 @@ os.environ.setdefault("GRIDGREEN_DISABLE_ST", "1")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BACKEND_DIR = REPO_ROOT / "backend"
+EVAL_DIR = REPO_ROOT / "evaluation"
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
+if str(EVAL_DIR) not in sys.path:
+    sys.path.insert(0, str(EVAL_DIR))
 
 from app.main import app  # noqa: E402
+from telemetry.codecarbon_adapter import (  # noqa: E402
+    load_observed_co2_grams,
+    merge_into_result_rows,
+)
 
 
 @dataclass
@@ -271,6 +278,10 @@ def run(config_path: Path) -> Path:
                     "first_alternative_snippet": "",
                 }
             )
+
+    observed = load_observed_co2_grams()
+    if observed:
+        result_rows = merge_into_result_rows(result_rows, observed)
 
     results_path = run_dir / "results.csv"
     suggestions_path = run_dir / "suggestions.csv"
