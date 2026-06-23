@@ -190,5 +190,22 @@ def get_scorecard(session_id: str) -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
-    logger.info("Starting GridGreen MCP server on stdio…")
-    mcp.run()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="GridGreen MCP server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse"],
+        default="stdio",
+        help="stdio for Claude Desktop; sse for remote HTTP clients",
+    )
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8765)
+    args = parser.parse_args()
+
+    if args.transport == "sse":
+        logger.info("Starting GridGreen MCP server on SSE %s:%s", args.host, args.port)
+        mcp.run(transport="sse", host=args.host, port=args.port)
+    else:
+        logger.info("Starting GridGreen MCP server on stdio")
+        mcp.run()

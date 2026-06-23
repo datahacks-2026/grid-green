@@ -1,0 +1,5 @@
+# Optional dependencies for ground-truth validation (CodeCarbon + GPU workloads).
+codecarbon>=2.3.0,<3
+torch>=2.2.0,<3
+transformers>=4.40.0,<5
+accelerate>=0.30.0,<2

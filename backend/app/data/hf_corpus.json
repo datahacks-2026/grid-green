@@ -671,6 +671,17 @@
       "citation": "DeepSeek-AI, DeepSeek-V2 technical report, 2024.",
       "reasoning": "Coder-V2-Lite covers most code-generation fine-tunes at a fraction of V2's MoE parameter count.",
       "tags": ["llm", "decoder", "deepseek", "code"]
+    },
+    {
+      "from": "SuperCustomModel",
+      "to": "google/flan-t5-large",
+      "params_from_b": 50.0,
+      "params_to_b": 0.78,
+      "carbon_saved_pct": 85,
+      "performance_retained_pct": 80,
+      "citation": "Heuristic mapping for undisclosed custom architectures.",
+      "reasoning": "Undocumented large custom models are high-risk for carbon; start from a well-benchmarked open checkpoint like flan-t5-large unless you have measured retention on your task.",
+      "tags": ["custom", "fallback", "llm"]
     }
   ]
 }

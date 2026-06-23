@@ -1,8 +1,14 @@
 {
   "_about": "Map CodeCarbon project_name values to GridGreen workload_id keys.",
   "project_to_workload": {
-    "llm_flan_xxl": "llm_flan_xxl",
-    "llm_llama_70b": "llm_llama_70b",
-    "classical_rf_2000": "classical_rf_2000"
+    "classical_logreg": "classical_logreg",
+    "classical_rf_2000": "classical_rf_2000",
+    "classical_xgboost_500": "classical_xgboost_500",
+    "classical_mlp": "classical_mlp",
+    "classical_gradient_boosting": "classical_gradient_boosting",
+    "vision_vit_base": "vision_vit_base",
+    "gpu_distilgpt2_finetune": "gpu_distilgpt2_finetune",
+    "gpu_flan_t5_small": "gpu_flan_t5_small",
+    "gpu_distilbert_finetune": "gpu_distilbert_finetune"
   }
 }

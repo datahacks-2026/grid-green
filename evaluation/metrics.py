@@ -127,6 +127,7 @@ def _table3_accuracy(results: pd.DataFrame) -> pd.DataFrame:
         )
     rr["observed_co2_grams"] = pd.to_numeric(rr["observed_co2_grams"], errors="coerce")
     rr = rr.dropna(subset=["co2_grams", "observed_co2_grams"])
+    rr = rr[rr["observed_co2_grams"] > 0.0001]
     if rr.empty:
         return pd.DataFrame(
             [

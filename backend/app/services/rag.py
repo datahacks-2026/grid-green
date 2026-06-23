@@ -493,6 +493,7 @@ _CALL_RE = re.compile(
     r"""replicate\.run|Replicate|timm\.create_model|create_model)\s*\(""",
     re.IGNORECASE,
 )
+_CUSTOM_MODEL_CLASS_RE = re.compile(r"\b([A-Z][A-Za-z0-9]*Model)\s*\(")
 
 # `model=...`, `model_name=...`, `model_id=...`, `repo_id=...`, `modelId=...`
 # (Bedrock camelCase) keyword args. `re.IGNORECASE` makes `modelId`,
@@ -597,6 +598,8 @@ def _looks_like_model_id(s: str) -> bool:
         return "huggingface.co/" in s
     if s.endswith((".py", ".json", ".yaml", ".yml", ".txt", ".csv", ".md", ".png", ".jpg")):
         return False
+    if re.match(r"^[A-Z][A-Za-z0-9]*Model$", s):
+        return True
     if any(s.startswith(o) for o in _KNOWN_HF_ORGS):
         return True
     if _looks_like_hf_hub_id(s):
@@ -721,6 +724,9 @@ def _extract_via_regex(code: str) -> List[Tuple[int, str, str]]:
             lit = _first_string_literal(tail)
             if lit:
                 out.append((idx, line, lit))
+
+        for cm in _CUSTOM_MODEL_CLASS_RE.finditer(line):
+            out.append((idx, line, cm.group(1)))
     return out
 
 

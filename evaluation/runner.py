@@ -283,12 +283,20 @@ def run(config_path: Path) -> Path:
     if observed:
         result_rows = merge_into_result_rows(result_rows, observed)
 
+    # Ensure consistent CSV columns when telemetry is partial.
+    fieldnames = list(result_rows[0].keys()) if result_rows else []
+    if observed and "observed_co2_grams" not in fieldnames:
+        fieldnames.append("observed_co2_grams")
+    for row in result_rows:
+        if "observed_co2_grams" not in row:
+            row["observed_co2_grams"] = ""
+
     results_path = run_dir / "results.csv"
     suggestions_path = run_dir / "suggestions.csv"
     meta_path = run_dir / "meta.json"
 
     with results_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(result_rows[0].keys()))
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(result_rows)
 

@@ -1,0 +1,14 @@
+{
+  "_about": "Self-contained workloads executed by run_codecarbon.py for ground-truth validation.",
+  "workloads": [
+    {"id": "classical_logreg", "path": "evaluation/workloads/runnable/classical_logreg.py"},
+    {"id": "classical_rf_2000", "path": "evaluation/workloads/runnable/classical_rf_2000.py"},
+    {"id": "classical_xgboost_500", "path": "evaluation/workloads/runnable/classical_xgboost_500.py"},
+    {"id": "classical_mlp", "path": "evaluation/workloads/runnable/classical_mlp.py"},
+    {"id": "classical_gradient_boosting", "path": "evaluation/workloads/runnable/classical_gradient_boosting.py"},
+    {"id": "vision_vit_base", "path": "evaluation/workloads/runnable/vision_vit_base.py"},
+    {"id": "gpu_distilgpt2_finetune", "path": "evaluation/workloads/runnable/gpu_distilgpt2_finetune.py"},
+    {"id": "gpu_flan_t5_small", "path": "evaluation/workloads/runnable/gpu_flan_t5_small.py"},
+    {"id": "gpu_distilbert_finetune", "path": "evaluation/workloads/runnable/gpu_distilbert_finetune.py"}
+  ]
+}

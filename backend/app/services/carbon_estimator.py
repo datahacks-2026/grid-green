@@ -29,7 +29,7 @@ using published scaling relationships:
   utilisation. We use 400W (worst-case) × GPU-hours → kWh.
 
 **Limitations (honest):**
-  - No dataset-size awareness (static analysis only).
+  - Dataset-size uses static literals only (`num_samples`, `n_samples`, etc.).
   - Batch-size effect uses a (32/B)^0.25 heuristic; real scaling is
     hardware- and kernel-dependent.
   - Closed-API models (GPT-4, Claude) use a flat inference-budget proxy;
@@ -236,6 +236,10 @@ def estimate(
     batch_all = _detect_int_all(code, r"batch_size\s*=\s*(\d+)")
     epochs = max(epochs_all) if epochs_all else 1
     batch_size = min(batch_all) if batch_all else 32
+    sample_count = _detect_sample_count(code)
+    sample_scale = _sample_scale_factor(sample_count)
+    sklearn_only = False
+    sklearn_hits: list[tuple[int, str]] = []
 
     if model_hits:
         # Take the largest detected model as the dominant cost driver.
@@ -246,15 +250,11 @@ def estimate(
     else:
         sklearn_hits = _detect_sklearn_calls(code)
         if sklearn_hits:
-            # Classical ML: use a CPU-equivalent GPU-hours budget that
-            # scales with `n_estimators` (when present) and the number of
-            # detected fit calls. These numbers are illustrative — they
-            # let the user see the relative cost of, say, a 2000-tree
-            # RandomForest vs a LogisticRegression. Compared to deep
-            # learning the absolute footprint is small, but it isn't 0.
+            sklearn_only = True
+            # Classical ML on CPU — wall time scales with n_estimators and sample count.
             n_estimators = _detect_int(code, r"n_estimators\s*=\s*(\d+)") or 100
-            base_hours_per_call = max(0.05, min(8.0, n_estimators / 200.0))
-            full_train_gpu_hours = base_hours_per_call * len(sklearn_hits)
+            base_hours = max(0.0005, min(1.0, n_estimators / 50_000.0))
+            full_train_gpu_hours = base_hours * len(sklearn_hits)
             params_b = 0.001  # token-sized cost — visible but small
             confidence = "medium"
             for line_no, name in sklearn_hits:
@@ -276,18 +276,27 @@ def estimate(
     # assume ~5% of full pre-training compute. With Trainer/model.fit we scale
     # by epochs as a rough multiplier.
     is_full_train = any(p.pattern in {"trainer.train", "Trainer(", "model.fit"} for p in patterns)
-    if full_train_gpu_hours <= 0:
+
+    if sklearn_only:
+        cpu_hours = round(full_train_gpu_hours * sample_scale, 6)
+        kwh = round(cpu_hours * 0.065, 6)  # ~65 W CPU average
+        gpu_hours = cpu_hours
+    elif full_train_gpu_hours <= 0:
         # Closed-API models have no public pre-training cost. Charge a fixed
         # inference-style budget so we still produce a meaningful CO2 number.
         gpu_hours = API_INFERENCE_GPU_HOURS_FALLBACK * (1.0 if not is_full_train else max(1.0, epochs))
+        gpu_hours = round(gpu_hours, 3)
+        gpu_hours = round(gpu_hours * (32.0 / max(batch_size, 1)) ** 0.25, 3)
+        gpu_hours = round(gpu_hours * sample_scale, 3)
+        kwh = round(gpu_hours * A100_KW, 3)
     else:
         fraction = 0.05 if not is_full_train else min(1.0, 0.1 * epochs)
         gpu_hours = full_train_gpu_hours * fraction
-    gpu_hours = round(gpu_hours, 3)
-    # Batch-size effect (smaller batches → more wall time per epoch, modest).
-    gpu_hours = round(gpu_hours * (32.0 / max(batch_size, 1)) ** 0.25, 3)
+        gpu_hours = round(gpu_hours, 3)
+        gpu_hours = round(gpu_hours * (32.0 / max(batch_size, 1)) ** 0.25, 3)
+        gpu_hours = round(gpu_hours * sample_scale, 3)
+        kwh = round(gpu_hours * A100_KW, 3)
 
-    kwh = round(gpu_hours * A100_KW, 3)
     co2_now = round(kwh * current_gco2_kwh, 1)
     co2_optimal = round(kwh * optimal_gco2_kwh, 1)
 
@@ -414,6 +423,34 @@ def _detect_workload_practices(code: str) -> List[WorkloadPracticeLite]:
 # ---------------------------------------------------------------------------
 # Detection helpers
 # ---------------------------------------------------------------------------
+
+_SAMPLE_COUNT_PATTERNS = (
+    re.compile(r"num_samples\s*=\s*(\d+)", re.I),
+    re.compile(r"n_samples\s*=\s*(\d+)", re.I),
+    re.compile(r"train_size\s*=\s*(\d+)", re.I),
+    re.compile(r"DataLoader\([^)]*num_samples\s*=\s*(\d+)", re.I),
+    re.compile(r"len\s*\(\s*(?:train_(?:dataset|loader)|dataset)\s*\)", re.I),
+)
+
+
+def _detect_sample_count(code: str) -> Optional[int]:
+    """Best-effort dataset size from static literals (not runtime len())."""
+    values: list[int] = []
+    for pat in _SAMPLE_COUNT_PATTERNS[:-1]:
+        values.extend(int(m) for m in pat.findall(code))
+    if _SAMPLE_COUNT_PATTERNS[-1].search(code):
+        # `len(train_dataset)` without a literal — skip (unknown at static time).
+        pass
+    return max(values) if values else None
+
+
+def _sample_scale_factor(sample_count: Optional[int], baseline: int = 10_000) -> float:
+    """Sublinear scaling vs a 10k-sample reference batch."""
+    if sample_count is None or sample_count <= 0:
+        return 1.0
+    ratio = sample_count / float(baseline)
+    return max(0.25, min(4.0, ratio ** 0.5))
+
 
 def _detect_models(code: str) -> List[str]:
     """Detect catalog-known models *actually used* in the script.

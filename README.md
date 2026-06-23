@@ -190,7 +190,10 @@ grid-green/
 |---|---|
 | [`CONTRACT.md`](CONTRACT.md) | API request and response schemas |
 | [`HOW_TO_RUN.md`](HOW_TO_RUN.md) | Environment setup, EIA ingest, cloud integrations |
-| [`evaluation/README.md`](evaluation/README.md) | Benchmark workloads and methodology |
+| [`evaluation/README.md`](evaluation/README.md) | Benchmark and CodeCarbon validation |
+| [`docs/DEPLOY.md`](docs/DEPLOY.md) | Render, Vercel, and remote MCP (SSE) |
+| [`docs/paper/DRAFT.md`](docs/paper/DRAFT.md) | Workshop paper draft |
+| [`docs/paper/RELATED_WORK.md`](docs/paper/RELATED_WORK.md) | Related work notes |
 
 ## License
 
