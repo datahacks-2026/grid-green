@@ -52,7 +52,16 @@ done
 echo "==> Rewriting all history (this may take a minute)"
 # Replace the leaked key with a placeholder in every file across all commits.
 git filter-branch --force --tree-filter "
-  if command -v gsed >/dev/null 2>&1; then SED=gsed; else SED=sed; fi
+  if command -v gsed >/dev/null 2>&1; then
+    SED=gsed
+    SED_INPLACE=(\"\$SED\" -i)
+  elif sed --version >/dev/null 2>&1; then
+    SED=sed
+    SED_INPLACE=(\"\$SED\" -i)
+  else
+    SED=sed
+    SED_INPLACE=(\"\$SED\" -i '')
+  fi
   find . -type f \\
        -not -path './.git/*' \\
        -not -path './.venv/*' \\
@@ -61,7 +70,7 @@ git filter-branch --force --tree-filter "
        -not -path './frontend/node_modules/*' \\
        -not -path './*.pdf' \\
        -size -1M \\
-       -exec \$SED -i 's/${LEAKED_KEY}/REDACTED_GEMINI_KEY_ROTATED/g' {} + 2>/dev/null || true
+       -exec \"\${SED_INPLACE[@]}\" 's/${LEAKED_KEY}/REDACTED_GEMINI_KEY_ROTATED/g' {} + 2>/dev/null || true
 " --tag-name-filter cat -- --all
 
 echo "==> Verifying"
