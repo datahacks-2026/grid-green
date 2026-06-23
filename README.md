@@ -124,27 +124,57 @@ Estimates are rules-based, not metered power readings. The pipeline:
 3. Converts compute to energy using published scaling laws ([Patterson et al., 2022](https://arxiv.org/abs/2104.10350); [Kaplan et al., 2020](https://arxiv.org/abs/2001.08361); [Strubell et al., 2019](https://arxiv.org/abs/1906.02243)).
 4. Applies grid carbon intensity from the US EIA (CISO, ERCO, PJM, MISO, NYIS).
 
-Limitations: no dataset-size awareness, heuristic batch-size scaling, flat proxy for closed API models, no runtime telemetry validation by default. For measured energy use, pair with [CodeCarbon](https://codecarbon.io/), RAPL, or DCGM.
+Limitations: heuristic batch-size scaling, flat proxy for closed API models, GPU estimates assume datacenter GPU TDP (not measured at the socket). Optional CodeCarbon validation is in `evaluation/`; pair with RAPL or DCGM for production metering.
 
 ## Evaluation
 
-The harness in `evaluation/` runs 12 workloads across four scenarios.
+Reproduced locally on 2026-06-23 (`GRIDGREEN_DISABLE_ST=1`, `GRIDGREEN_DISABLE_HF_HUB=1`). Full methodology in [`evaluation/README.md`](evaluation/README.md).
+
+### Harness (12 workloads, 4 scenarios each)
 
 | Metric | Result |
 |---|---|
-| Success rate | 100% (12/12) |
-| Mean analysis latency | <20 ms |
-| Suggestion coverage | 66.7% |
-| Mean compute reduction per suggestion | 77.6% |
+| Analysis success | 100% (12/12 workloads) |
+| Mean analysis latency | 12 ms |
+| Workloads with ≥1 greener suggestion | 75% (9/12) |
+| Harness swap-apply success | 75% |
+| Avg claimed compute reduction (first swap) | 78% parameter-ratio |
+
+**Estimated CO₂ reduction vs baseline (S1 → S4, model swap + optimal window):**
+
+| Workload group | S2 (swap only) | S4 (swap + schedule) |
+|---|---|---|
+| LLM | 55% | 50% |
+| Vision / audio | 57% | 53% |
+| Overall | 37% | 33% |
+
+*Percent change in rules-based CO₂ estimates, not metered energy. S3/S4 grid-window values depend on EIA snapshot at benchmark time.*
+
+### CodeCarbon validation (9 runnable workloads)
+
+Static estimates compared to measured emissions from `evaluation/telemetry/run_codecarbon.py`:
+
+| Metric | Result |
+|---|---|
+| CPU sklearn workloads (5 with measurable emissions) | **0.20 gCO₂e MAE** |
+| Per-workload error (CPU) | 0.001–0.80 gCO₂e |
+| GPU fine-tunes (`distilgpt2`, `flan-t5-small`, `distilbert`) | Run on CUDA for comparable validation* |
+
+\*On CPU-only hosts, CodeCarbon reports sub-milligram emissions for short fine-tunes while static analysis assumes GPU scaling — MAPE is not meaningful there. Re-run on a GPU machine:
 
 ```bash
-GRIDGREEN_DISABLE_ST=1 GRIDGREEN_DISABLE_HF_HUB=1 \
-  python -m evaluation.runner --config evaluation/configs/benchmark_config.json
-
-python -m evaluation.metrics --run-dir evaluation/runs/<timestamp>
+pip install -r evaluation/requirements-telemetry.txt
+python -m evaluation.telemetry.baseline_report
 ```
 
-See [`evaluation/README.md`](evaluation/README.md) for details.
+### Reproduce
+
+```bash
+# 12-workload scenario harness
+GRIDGREEN_DISABLE_ST=1 GRIDGREEN_DISABLE_HF_HUB=1 \
+  python -m evaluation.runner --config evaluation/configs/benchmark_config.json
+python -m evaluation.metrics --run-dir evaluation/runs/<timestamp>
+```
 
 ## Cloud integrations
 
