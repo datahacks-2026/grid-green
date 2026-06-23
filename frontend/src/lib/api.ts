@@ -44,6 +44,8 @@ export interface WorkloadPractice {
 export interface EstimateCarbonResponse {
   co2_grams_now: number;
   co2_grams_optimal: number;
+  compute_hours: number;
+  compute_device: "gpu" | "cpu" | "api";
   gpu_hours: number;
   kwh_estimated: number;
   confidence: Confidence;

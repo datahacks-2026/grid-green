@@ -16,6 +16,8 @@ from typing import Tuple
 
 import httpx
 
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,7 +48,11 @@ def fetch_weather(region: str) -> WeatherSnapshot | None:
     headers = {"User-Agent": "GridGreen/0.1 (hackathon demo)"}
 
     try:
-        with httpx.Client(timeout=15.0, headers=headers, verify=False) as client:
+        with httpx.Client(
+            timeout=15.0,
+            headers=headers,
+            verify=get_settings().outbound_tls_verify,
+        ) as client:
             meta = client.get(f"https://api.weather.gov/points/{lat},{lon}")
             meta.raise_for_status()
             forecast_url = meta.json()["properties"]["forecastHourly"]

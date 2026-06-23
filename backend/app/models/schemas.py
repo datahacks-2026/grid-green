@@ -11,6 +11,7 @@ Region = Literal["CISO", "ERCO", "PJM", "MISO", "NYIS"]
 Impact = Literal["low", "medium", "high"]
 Confidence = Literal["low", "medium", "high"]
 Trend = Literal["rising", "falling", "flat"]
+ComputeDevice = Literal["gpu", "cpu", "api"]
 
 
 class DetectedPattern(BaseModel):
@@ -37,6 +38,12 @@ class EstimateCarbonRequest(BaseModel):
 class EstimateCarbonResponse(BaseModel):
     co2_grams_now: float
     co2_grams_optimal: float
+    compute_hours: float = Field(
+        ..., description="Estimated wall-clock-equivalent compute hours for the dominant device."
+    )
+    compute_device: ComputeDevice = Field(
+        ..., description="Dominant device basis for compute_hours: gpu, cpu, or api."
+    )
     gpu_hours: float
     kwh_estimated: float
     confidence: Confidence

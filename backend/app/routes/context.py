@@ -5,14 +5,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from app.models.schemas import Region
+from app.config import get_settings
 from app.services import heatmap, noaa_client
+from app.services.limits import limiter
 from app.services.regions import is_supported
 
 router = APIRouter(prefix="/api/context", tags=["context"])
+_settings = get_settings()
 
 
 class WeatherResponse(BaseModel):
@@ -35,7 +38,11 @@ class CampusHeatResponse(BaseModel):
 
 
 @router.get("/weather", response_model=WeatherResponse)
-def weather(region: Region = "CISO") -> WeatherResponse:
+@limiter.limit(f"{_settings.rate_limit_per_minute}/minute")
+def weather(
+    request: Request,  # noqa: ARG001
+    region: Region = "CISO",
+) -> WeatherResponse:
     if not is_supported(region):
         raise HTTPException(status_code=400, detail=f"Unsupported region: {region}")
     snap = noaa_client.fetch_weather(region)
@@ -52,7 +59,8 @@ def weather(region: Region = "CISO") -> WeatherResponse:
 
 
 @router.get("/campus_heat", response_model=CampusHeatResponse)
-def campus_heat() -> CampusHeatResponse:
+@limiter.limit(f"{_settings.rate_limit_per_minute}/minute")
+def campus_heat(request: Request) -> CampusHeatResponse:  # noqa: ARG001
     points = heatmap.load_csv()
     summary = heatmap.summarize(points)
     return CampusHeatResponse(

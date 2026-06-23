@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -163,9 +163,10 @@ _CATALOG_KEYS_ORDERED = sorted(MODEL_CATALOG.keys(), key=len, reverse=True)
 
 # Approximate inference compute (GPU-hours per million prompts) for
 # closed-API models that have no public training-cost number. Used only
-# when `full_train_gpu_hours == 0.0` so the estimator still produces a
-# non-trivial energy number for OpenAI/Anthropic/Google/Cohere calls.
+# when `full_train_gpu_hours == 0.0`; prompt/request counts are inferred
+# from static literals when present.
 API_INFERENCE_GPU_HOURS_FALLBACK = 80.0
+API_INFERENCE_DEFAULT_PROMPTS = 1_000
 
 # Energy assumptions for a single A100 80GB GPU at typical utilization.
 A100_KW = 0.4  # 400W average
@@ -208,6 +209,8 @@ class WorkloadPracticeLite:
 class EstimateResult:
     co2_grams_now: float
     co2_grams_optimal: float
+    compute_hours: float
+    compute_device: Literal["gpu", "cpu", "api"]
     gpu_hours: float
     kwh_estimated: float
     confidence: str
@@ -237,6 +240,7 @@ def estimate(
     epochs = max(epochs_all) if epochs_all else 1
     batch_size = min(batch_all) if batch_all else 32
     sample_count = _detect_sample_count(code)
+    prompt_count = _detect_prompt_count(code)
     sample_scale = _sample_scale_factor(sample_count)
     sklearn_only = False
     sklearn_hits: list[tuple[int, str]] = []
@@ -280,21 +284,29 @@ def estimate(
     if sklearn_only:
         cpu_hours = round(full_train_gpu_hours * sample_scale, 6)
         kwh = round(cpu_hours * 0.065, 6)  # ~65 W CPU average
+        compute_hours = cpu_hours
+        compute_device: Literal["gpu", "cpu", "api"] = "cpu"
         gpu_hours = cpu_hours
     elif full_train_gpu_hours <= 0:
-        # Closed-API models have no public pre-training cost. Charge a fixed
-        # inference-style budget so we still produce a meaningful CO2 number.
-        gpu_hours = API_INFERENCE_GPU_HOURS_FALLBACK * (1.0 if not is_full_train else max(1.0, epochs))
+        # Closed-API models have no public pre-training cost. Scale the
+        # inference-style budget by static prompt/request volume instead of
+        # charging a large fixed cost for any single API call.
+        prompt_scale = max(1, prompt_count or API_INFERENCE_DEFAULT_PROMPTS) / 1_000_000.0
+        gpu_hours = API_INFERENCE_GPU_HOURS_FALLBACK * prompt_scale
         gpu_hours = round(gpu_hours, 3)
         gpu_hours = round(gpu_hours * (32.0 / max(batch_size, 1)) ** 0.25, 3)
         gpu_hours = round(gpu_hours * sample_scale, 3)
+        compute_hours = gpu_hours
+        compute_device = "api"
         kwh = round(gpu_hours * A100_KW, 3)
     else:
-        fraction = 0.05 if not is_full_train else min(1.0, 0.1 * epochs)
+        fraction = 0.05 if not is_full_train else min(1.0, 0.05 * epochs)
         gpu_hours = full_train_gpu_hours * fraction
         gpu_hours = round(gpu_hours, 3)
         gpu_hours = round(gpu_hours * (32.0 / max(batch_size, 1)) ** 0.25, 3)
         gpu_hours = round(gpu_hours * sample_scale, 3)
+        compute_hours = gpu_hours
+        compute_device = "gpu"
         kwh = round(gpu_hours * A100_KW, 3)
 
     co2_now = round(kwh * current_gco2_kwh, 1)
@@ -305,6 +317,8 @@ def estimate(
     return EstimateResult(
         co2_grams_now=co2_now,
         co2_grams_optimal=co2_optimal,
+        compute_hours=compute_hours,
+        compute_device=compute_device,
         gpu_hours=gpu_hours,
         kwh_estimated=kwh,
         confidence=confidence,
@@ -432,6 +446,11 @@ _SAMPLE_COUNT_PATTERNS = (
     re.compile(r"len\s*\(\s*(?:train_(?:dataset|loader)|dataset)\s*\)", re.I),
 )
 
+_PROMPT_COUNT_PATTERNS = (
+    re.compile(r"(?:num_prompts|n_prompts|prompt_count|request_count|num_requests)\s*=\s*([\d_]+)", re.I),
+    re.compile(r"range\s*\(\s*([\d_]+)\s*\).*?(?:chat\.completions|invoke_model|replicate\.run)", re.I | re.S),
+)
+
 
 def _detect_sample_count(code: str) -> Optional[int]:
     """Best-effort dataset size from static literals (not runtime len())."""
@@ -441,6 +460,18 @@ def _detect_sample_count(code: str) -> Optional[int]:
     if _SAMPLE_COUNT_PATTERNS[-1].search(code):
         # `len(train_dataset)` without a literal — skip (unknown at static time).
         pass
+    return max(values) if values else None
+
+
+def _detect_prompt_count(code: str) -> Optional[int]:
+    """Best-effort closed-API inference volume from static literals."""
+    values: list[int] = []
+    for pat in _PROMPT_COUNT_PATTERNS:
+        for raw in pat.findall(code):
+            try:
+                values.append(int(str(raw).replace("_", "")))
+            except (TypeError, ValueError):
+                continue
     return max(values) if values else None
 
 

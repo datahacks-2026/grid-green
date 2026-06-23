@@ -7,6 +7,7 @@ Run from `backend/`:
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 
 os.environ.setdefault("CORS_ALLOW_ORIGINS", "http://localhost:3000")
 # Disable rate limiting noise in tests by raising the cap; doesn't change shapes.
@@ -68,8 +69,66 @@ model.fit(x, y, epochs=3, batch_size=16)
     assert r.status_code == 200
     body = r.json()
     assert body["co2_grams_now"] >= 0
+    assert body["compute_hours"] == body["gpu_hours"]
+    assert body["compute_device"] == "gpu"
     assert body["confidence"] in {"low", "medium", "high"}
     assert any(p["pattern"] == "from_pretrained" for p in body["detected_patterns"])
+
+
+def test_estimate_carbon_clean_window_uses_estimated_duration(monkeypatch) -> None:
+    """A large estimated workload should request a long clean-window average,
+    not the old fixed 4-hour average."""
+    from app.routes import grid as grid_routes
+
+    calls: list[int] = []
+    ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(
+        grid_routes.forecaster,
+        "latest_intensity",
+        lambda region: (ts, 100.0),
+    )
+
+    def _fake_find_clean_window(region: str, hours_needed: int, max_delay_hours: int):
+        calls.append(hours_needed)
+        forecast = [(ts, 50.0) for _ in range(max_delay_hours)]
+        return ts, 50.0, 100.0, 50.0, forecast
+
+    monkeypatch.setattr(
+        grid_routes.forecaster,
+        "find_clean_window",
+        _fake_find_clean_window,
+    )
+
+    code = "from transformers import AutoModel\nm = AutoModel.from_pretrained('meta-llama/Llama-3-70B')\n"
+    r = client.post("/api/estimate_carbon", json={"code": code, "region": "CISO"})
+    assert r.status_code == 200
+    assert calls == [24]
+    body = r.json()
+    assert body["compute_hours"] > 24
+    assert body["co2_grams_optimal"] == round(body["kwh_estimated"] * 50.0, 1)
+
+
+def test_estimate_carbon_one_epoch_train_matches_five_percent_baseline() -> None:
+    """The documented fine-tune heuristic is 5% per epoch, capped at 100%."""
+    from app.services import carbon_estimator
+
+    inference_like = (
+        "from transformers import AutoModelForCausalLM\n"
+        "m = AutoModelForCausalLM.from_pretrained('gpt2-xl')\n"
+    )
+    one_epoch_train = (
+        "from transformers import AutoModelForCausalLM, Trainer\n"
+        "m = AutoModelForCausalLM.from_pretrained('gpt2-xl')\n"
+        "Trainer(model=m).train(epochs=1)\n"
+    )
+    a = carbon_estimator.estimate(
+        inference_like, current_gco2_kwh=100.0, optimal_gco2_kwh=50.0
+    )
+    b = carbon_estimator.estimate(
+        one_epoch_train, current_gco2_kwh=100.0, optimal_gco2_kwh=50.0
+    )
+    assert b.gpu_hours == a.gpu_hours
 
 
 def test_estimate_carbon_workload_practices_detect_ddp_autocast_compile() -> None:
@@ -125,7 +184,24 @@ def test_estimate_carbon_api_model_via_kwarg_is_recognised() -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["confidence"] in {"high", "medium"}, body
+    assert body["compute_device"] == "api"
+    assert body["compute_hours"] < 1.0
     assert body["co2_grams_now"] > 0
+
+
+def test_estimate_carbon_api_prompt_count_scales_cost() -> None:
+    from app.services import carbon_estimator
+
+    small = "client.chat.completions.create(model='gpt-4-turbo', messages=[])\n"
+    big = (
+        "num_prompts = 2_000_000\n"
+        "client.chat.completions.create(model='gpt-4-turbo', messages=[])\n"
+    )
+    a = carbon_estimator.estimate(small, current_gco2_kwh=100.0, optimal_gco2_kwh=50.0)
+    b = carbon_estimator.estimate(big, current_gco2_kwh=100.0, optimal_gco2_kwh=50.0)
+    assert a.compute_device == "api"
+    assert b.compute_device == "api"
+    assert b.compute_hours > a.compute_hours
 
 
 def test_estimate_carbon_bedrock_modelid_kwarg_detected() -> None:
@@ -282,6 +358,8 @@ def test_estimate_carbon_sklearn_random_forest_recognised() -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["confidence"] == "medium", body
+    assert body["compute_device"] == "cpu", body
+    assert body["compute_hours"] == body["gpu_hours"], body
     assert body["co2_grams_now"] > 0
     assert any(
         p["pattern"].startswith("sklearn:") for p in body["detected_patterns"]

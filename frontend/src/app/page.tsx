@@ -32,6 +32,13 @@ const WINDOW_LOOKAHEADS = [4, 12, 24, 48] as const;
 type WindowLookahead = (typeof WINDOW_LOOKAHEADS)[number];
 type CleanWindowByLookahead = Partial<Record<WindowLookahead, FindCleanWindowResponse>>;
 
+function hoursNeededForEstimate(estimate: EstimateCarbonResponse): number {
+  if (!Number.isFinite(estimate.compute_hours) || estimate.compute_hours <= 0) {
+    return 1;
+  }
+  return Math.max(1, Math.min(24, Math.ceil(estimate.compute_hours)));
+}
+
 export default function Home() {
   const [mode, setMode] = useState<Mode>("code");
   const [code, setCode] = useState(SAMPLE_CODE);
@@ -100,12 +107,13 @@ export default function Home() {
     }
     try {
       // Phase 1 — primary numbers we can't render the modal without.
-      const [est, win4, win12, win24, win48] = await Promise.all([
-        estimateCarbon(analysisPayload, region),
-        findCleanWindow(region, 4, 4),
-        findCleanWindow(region, 4, 12),
-        findCleanWindow(region, 4, 24),
-        findCleanWindow(region, 4, 48),
+      const est = await estimateCarbon(analysisPayload, region);
+      const hoursNeeded = hoursNeededForEstimate(est);
+      const [win4, win12, win24, win48] = await Promise.all([
+        findCleanWindow(region, hoursNeeded, 4),
+        findCleanWindow(region, hoursNeeded, 12),
+        findCleanWindow(region, hoursNeeded, 24),
+        findCleanWindow(region, hoursNeeded, 48),
       ]);
       const windows: CleanWindowByLookahead = {
         4: win4,

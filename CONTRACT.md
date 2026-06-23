@@ -22,6 +22,8 @@ All endpoints are mounted under `/api`.
 {
   "co2_grams_now": 1840,
   "co2_grams_optimal": 340,
+  "compute_hours": 2.5,
+  "compute_device": "gpu | cpu | api",
   "gpu_hours": 2.5,
   "kwh_estimated": 1.8,
   "confidence": "low | medium | high",
@@ -43,6 +45,10 @@ All endpoints are mounted under `/api`.
 `workload_practices` may be empty. Each entry is the **first** matching line in the
 script for that practice id (deduped). These are **advisory** signals separate from
 `detected_patterns` (model-load / trainer heuristics).
+
+`gpu_hours` is retained for backward compatibility. Prefer `compute_hours` +
+`compute_device` for display; classical ML estimates use CPU energy, and API-model
+estimates use a prompt-volume proxy.
 
 ---
 
@@ -125,6 +131,111 @@ grid + script CO₂ context to each suggestion's `reasoning`.
   "co2_saved_grams": 1200,
   "runs_deferred": 3,
   "suggestions_accepted": 2
+}
+```
+
+---
+
+## POST /api/scorecard/event  (Person B owns)
+
+### Request
+```json
+{
+  "session_id": "abc",
+  "event": "suggestion_accepted | run_deferred",
+  "co2_saved_grams": 420
+}
+```
+
+### Response
+Same shape as `GET /api/scorecard`.
+
+---
+
+## POST /api/analyze_repo
+
+Fetch a public GitHub repository zipball, scan `.py` / `.ipynb` files for model
+loads, and return per-file greener suggestions plus aggregated code for
+`estimate_carbon`.
+
+### Request
+```json
+{
+  "repo_url": "https://github.com/owner/repo",
+  "ref": "main",
+  "region": "CISO",
+  "top_k_per_file": 2,
+  "max_files_with_hits": 25
+}
+```
+
+`ref`, `region`, `top_k_per_file`, and `max_files_with_hits` are optional.
+
+### Response
+```json
+{
+  "repo_url": "https://github.com/owner/repo",
+  "owner": "owner",
+  "repo": "repo",
+  "files_scanned": 42,
+  "files_with_hits": 3,
+  "total_suggestions": 5,
+  "files": [
+    {
+      "path": "train.py",
+      "suggestions": [
+        {
+          "line": 5,
+          "original_snippet": "…",
+          "alternative_snippet": "…",
+          "carbon_saved_pct": 85,
+          "performance_retained_pct": 94,
+          "citation": "…",
+          "reasoning": "…"
+        }
+      ]
+    }
+  ],
+  "aggregated_code_for_estimate": "# --- repo:train.py ---\n…",
+  "aggregate_file_count": 12,
+  "aggregate_truncated": false
+}
+```
+
+---
+
+## GET /api/context/weather?region=CISO
+
+Optional narrative context (not the primary carbon signal).
+
+### Response
+```json
+{
+  "region": "CISO",
+  "location_label": "San Francisco, CA",
+  "temperature_f": 62.0,
+  "high_24h_f": 68.0,
+  "short_forecast": "Partly cloudy",
+  "fetched_at": "2026-04-18T12:00:00Z"
+}
+```
+
+---
+
+## GET /api/context/campus_heat
+
+Summary of bundled UCSD mobile weather CSV (demo heatmap data).
+
+### Response
+```json
+{
+  "source": "scripps_ucsd_mobile_weather",
+  "n_points": 1200,
+  "n_stations": 4,
+  "earliest": "2026-03-01T00:00:00Z",
+  "latest": "2026-03-15T23:00:00Z",
+  "mean_temperature_c": 18.2,
+  "mean_relative_humidity": 72.5
 }
 ```
 

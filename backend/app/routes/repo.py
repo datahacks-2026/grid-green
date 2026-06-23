@@ -9,16 +9,16 @@ per-file suggestions plus a small aggregate.
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.models.schemas import GreenerSuggestion, Region
 from app.services import gemini_service, rag
+from app.services.limits import limiter
 from app.services.repo_fetcher import (
     RepoFetchError,
     RepoFile,
@@ -29,6 +29,7 @@ from app.services.repo_fetcher import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["model-intelligence"])
+_settings = get_settings()
 
 
 class AnalyzeRepoRequest(BaseModel):
@@ -102,7 +103,11 @@ def _aggregate_repo_sources(
 
 
 @router.post("/analyze_repo", response_model=AnalyzeRepoResponse)
-def analyze_repo(payload: AnalyzeRepoRequest) -> AnalyzeRepoResponse:
+@limiter.limit(f"{_settings.rate_limit_heavy_per_minute}/minute")
+def analyze_repo(
+    request: Request,  # noqa: ARG001
+    payload: AnalyzeRepoRequest,
+) -> AnalyzeRepoResponse:
     settings = get_settings()
     try:
         owner, repo = parse_github_url(payload.repo_url)
@@ -125,47 +130,44 @@ def analyze_repo(payload: AnalyzeRepoRequest) -> AnalyzeRepoResponse:
 
     out: List[FileSuggestions] = []
     total = 0
-    # Repo scans fan out over many files; forcing local RAG avoids opening a
-    # Snowflake connection per file which can cause slow scans/timeouts.
-    previous_backend = os.environ.get("GRIDGREEN_RAG_BACKEND")
-    os.environ["GRIDGREEN_RAG_BACKEND"] = "local"
-    try:
-        for f in files:
-            code = f.content
-            if f.path.lower().endswith(".ipynb"):
-                code = extract_python_from_notebook(code)
-            if len(code.encode("utf-8")) > settings.max_code_bytes:
-                # Truncate rather than skip — long files often still have valuable
-                # model loads in their first few hundred KB.
-                code = code.encode("utf-8")[: settings.max_code_bytes].decode(
-                    "utf-8", errors="ignore"
-                )
-            raw = rag.suggest(code, top_k=payload.top_k_per_file, context=ctx)
-            if not raw:
-                continue
-            suggestions = [
-                GreenerSuggestion(
-                    line=s.line,
-                    original_snippet=s.original_snippet,
-                    alternative_snippet=s.alternative_snippet,
-                    carbon_saved_pct=s.carbon_saved_pct,
-                    performance_retained_pct=s.performance_retained_pct,
-                    citation=s.citation,
-                    # Skip the Gemini polish per-suggestion to keep repo scans
-                    # fast — the raw RAG reasoning already cites numbers.
-                    reasoning=s.reasoning,
-                )
-                for s in raw
-            ]
-            out.append(FileSuggestions(path=f.path, suggestions=suggestions))
-            total += len(suggestions)
-            if len(out) >= payload.max_files_with_hits:
-                break
-    finally:
-        if previous_backend is None:
-            os.environ.pop("GRIDGREEN_RAG_BACKEND", None)
-        else:
-            os.environ["GRIDGREEN_RAG_BACKEND"] = previous_backend
+    # Repo scans fan out over many files; force local RAG per call instead of
+    # mutating process-wide environment state while other requests may run.
+    for f in files:
+        code = f.content
+        if f.path.lower().endswith(".ipynb"):
+            code = extract_python_from_notebook(code)
+        if len(code.encode("utf-8")) > settings.max_code_bytes:
+            # Truncate rather than skip — long files often still have valuable
+            # model loads in their first few hundred KB.
+            code = code.encode("utf-8")[: settings.max_code_bytes].decode(
+                "utf-8", errors="ignore"
+            )
+        raw = rag.suggest(
+            code,
+            top_k=payload.top_k_per_file,
+            context=ctx,
+            backend="local",
+        )
+        if not raw:
+            continue
+        suggestions = [
+            GreenerSuggestion(
+                line=s.line,
+                original_snippet=s.original_snippet,
+                alternative_snippet=s.alternative_snippet,
+                carbon_saved_pct=s.carbon_saved_pct,
+                performance_retained_pct=s.performance_retained_pct,
+                citation=s.citation,
+                # Skip the Gemini polish per-suggestion to keep repo scans
+                # fast — the raw RAG reasoning already cites numbers.
+                reasoning=s.reasoning,
+            )
+            for s in raw
+        ]
+        out.append(FileSuggestions(path=f.path, suggestions=suggestions))
+        total += len(suggestions)
+        if len(out) >= payload.max_files_with_hits:
+            break
 
     # Polish only the *first* suggestion per file with Gemini if available —
     # bounded LLM cost, still demonstrates the integration.

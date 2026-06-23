@@ -21,6 +21,8 @@ from typing import Iterable, List
 
 import httpx
 
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -83,7 +85,11 @@ def fetch_repo_files(
         headers["Authorization"] = f"Bearer {token}"
 
     try:
-        with httpx.Client(timeout=timeout_s, follow_redirects=True, verify=False) as client:
+        with httpx.Client(
+            timeout=timeout_s,
+            follow_redirects=True,
+            verify=get_settings().outbound_tls_verify,
+        ) as client:
             resp = client.get(api_url, headers=headers)
     except httpx.HTTPError as exc:
         raise RepoFetchError(f"GitHub fetch failed: {exc}") from exc

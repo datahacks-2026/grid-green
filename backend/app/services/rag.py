@@ -262,6 +262,7 @@ class RagIndex:
         *,
         top_k: int = 3,
         context: SuggestContext | None = None,
+        backend: str | None = None,
     ) -> List[Suggestion]:
         self._ensure_loaded()
         hits = _extract_model_hits(code)
@@ -276,7 +277,7 @@ class RagIndex:
         seen: set[Tuple[str, str]] = set()
 
         for line, snippet, model_id in hits:
-            ranked = self._rank(model_id)
+            ranked = self._rank(model_id, backend=backend)
             for entry, score in ranked:
                 if score <= 0.0:
                     continue
@@ -338,8 +339,8 @@ class RagIndex:
 
         return suggestions
 
-    def _rank(self, query: str) -> List[Tuple[CorpusEntry, float]]:
-        sims = self._similarity_scores(query)
+    def _rank(self, query: str, *, backend: str | None = None) -> List[Tuple[CorpusEntry, float]]:
+        sims = self._similarity_scores(query, backend=backend)
 
         # Strong boost for exact substring match against `from` model id.
         boosted = []
@@ -353,7 +354,7 @@ class RagIndex:
         boosted.sort(key=lambda t: t[1], reverse=True)
         return boosted
 
-    def _similarity_scores(self, query: str):
+    def _similarity_scores(self, query: str, *, backend: str | None = None):
         """Per-entry similarity in `self._entries` order.
 
         Backend selection (env ``GRIDGREEN_RAG_BACKEND``):
@@ -364,7 +365,9 @@ class RagIndex:
         - ``auto`` (default) — try Snowflake when ``SNOWFLAKE_*`` is
           configured, else local SBERT, else TF-IDF.
         """
-        backend = os.environ.get("GRIDGREEN_RAG_BACKEND", "auto").strip().lower()
+        backend = (backend or os.environ.get("GRIDGREEN_RAG_BACKEND", "auto")).strip().lower()
+        if backend not in {"auto", "local", "snowflake"}:
+            backend = "auto"
 
         if backend in {"snowflake", "auto"}:
             sims = self._similarity_snowflake(query)
@@ -1033,8 +1036,9 @@ def suggest(
     top_k: int = 3,
     *,
     context: SuggestContext | None = None,
+    backend: str | None = None,
 ) -> List[Suggestion]:
-    return get_index().suggest(code, top_k=top_k, context=context)
+    return get_index().suggest(code, top_k=top_k, context=context, backend=backend)
 
 
 def _reasoning_with_part_a(

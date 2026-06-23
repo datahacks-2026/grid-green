@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.config import get_settings
 from app.models.schemas import (
@@ -13,6 +13,7 @@ from app.models.schemas import (
     SuggestGreenerResponse,
 )
 from app.services import gemini_service, rag
+from app.services.limits import limiter
 from app.services.session_scorecard import (
     get as scorecard_get,
     record_run_deferred,
@@ -20,6 +21,7 @@ from app.services.session_scorecard import (
 )
 
 router = APIRouter(prefix="/api", tags=["model-intelligence"])
+_settings = get_settings()
 
 
 def _context_from_request(payload: SuggestGreenerRequest) -> rag.SuggestContext | None:
@@ -47,7 +49,11 @@ def _context_from_request(payload: SuggestGreenerRequest) -> rag.SuggestContext 
 
 
 @router.post("/suggest_greener", response_model=SuggestGreenerResponse)
-def suggest_greener(payload: SuggestGreenerRequest) -> SuggestGreenerResponse:
+@limiter.limit(f"{_settings.rate_limit_heavy_per_minute}/minute")
+def suggest_greener(
+    request: Request,  # noqa: ARG001
+    payload: SuggestGreenerRequest,
+) -> SuggestGreenerResponse:
     settings = get_settings()
     code = payload.code or ""
     if len(code.encode("utf-8")) > settings.max_code_bytes:
@@ -71,12 +77,20 @@ def suggest_greener(payload: SuggestGreenerRequest) -> SuggestGreenerResponse:
 
 
 @router.get("/scorecard", response_model=ScorecardResponse)
-def scorecard(session_id: str = Query(..., min_length=1)) -> ScorecardResponse:
+@limiter.limit(f"{_settings.rate_limit_per_minute}/minute")
+def scorecard(
+    request: Request,  # noqa: ARG001
+    session_id: str = Query(..., min_length=1),
+) -> ScorecardResponse:
     return scorecard_get(session_id)
 
 
 @router.post("/scorecard/event", response_model=ScorecardResponse)
-def scorecard_event(body: ScorecardEventRequest) -> ScorecardResponse:
+@limiter.limit(f"{_settings.rate_limit_per_minute}/minute")
+def scorecard_event(
+    request: Request,  # noqa: ARG001
+    body: ScorecardEventRequest,
+) -> ScorecardResponse:
     saved = float(body.co2_saved_grams or 0.0)
     if body.event == "suggestion_accepted":
         return record_suggestion_accepted(body.session_id, saved)

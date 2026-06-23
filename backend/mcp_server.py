@@ -49,6 +49,7 @@ if HERE not in sys.path:
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 from app.services import carbon_estimator, forecaster, gemini_service, rag  # noqa: E402
+from app.services.grid_helpers import hours_needed_from_estimate  # noqa: E402
 from app.services.regions import is_supported  # noqa: E402
 from app.services.session_scorecard import get as scorecard_get  # noqa: E402
 
@@ -117,8 +118,12 @@ def estimate_carbon(code: str, region: str = "CISO") -> Dict[str, Any]:
     if not is_supported(region):
         return {"error": f"Unsupported region: {region}"}
     _, current = forecaster.latest_intensity(region)
+    preliminary = carbon_estimator.estimate(
+        code, current_gco2_kwh=current, optimal_gco2_kwh=current
+    )
+    hours_needed = hours_needed_from_estimate(preliminary.compute_hours)
     _, optimal_expected, _, _, _ = forecaster.find_clean_window(
-        region=region, hours_needed=4, max_delay_hours=48
+        region=region, hours_needed=hours_needed, max_delay_hours=48
     )
     result = carbon_estimator.estimate(
         code, current_gco2_kwh=current, optimal_gco2_kwh=optimal_expected
@@ -126,6 +131,8 @@ def estimate_carbon(code: str, region: str = "CISO") -> Dict[str, Any]:
     return {
         "co2_grams_now": result.co2_grams_now,
         "co2_grams_optimal": result.co2_grams_optimal,
+        "compute_hours": result.compute_hours,
+        "compute_device": result.compute_device,
         "gpu_hours": result.gpu_hours,
         "kwh_estimated": result.kwh_estimated,
         "confidence": result.confidence,
@@ -147,15 +154,28 @@ def estimate_carbon(code: str, region: str = "CISO") -> Dict[str, Any]:
 
 
 @mcp.tool()
-def suggest_greener(code: str) -> Dict[str, Any]:
+def suggest_greener(
+    code: str,
+    region: str | None = None,
+    co2_grams_now: float | None = None,
+    co2_grams_optimal: float | None = None,
+) -> Dict[str, Any]:
     """Suggest greener model alternatives for any HuggingFace models referenced in `code`.
 
     Uses a curated corpus of ~57 size/quality-paired models; returns up to
     three swap suggestions per detected model with compute-reduction %,
     performance-retained %, citation, and Gemini-polished reasoning (when
-    GEMINI_API_KEY is set).
+    GEMINI_API_KEY is set). Optional `region` and CO₂ fields mirror the HTTP
+    `/api/suggest_greener` context payload for grid-aware reasoning.
     """
-    suggestions = rag.suggest(code, top_k=3)
+    ctx = None
+    if any(v is not None for v in (region, co2_grams_now, co2_grams_optimal)):
+        ctx = rag.SuggestContext(
+            region=region,
+            co2_grams_now=co2_grams_now,
+            co2_grams_optimal=co2_grams_optimal,
+        )
+    suggestions = rag.suggest(code, top_k=3, context=ctx)
     return {
         "suggestions": [
             {
@@ -204,6 +224,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.transport == "sse":
+        if args.host not in ("127.0.0.1", "localhost", "::1"):
+            logger.warning(
+                "SSE MCP bound to %s without auth — expose only behind a trusted proxy",
+                args.host,
+            )
         logger.info("Starting GridGreen MCP server on SSE %s:%s", args.host, args.port)
         mcp.run(transport="sse", host=args.host, port=args.port)
     else:

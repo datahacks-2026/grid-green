@@ -38,7 +38,9 @@ class Settings(BaseSettings):
 
     grid_cache_ttl_s: int = 300
     rate_limit_per_minute: int = 60
+    rate_limit_heavy_per_minute: int = 15
     request_timeout_s: int = 45
+    outbound_tls_verify: bool = True
 
     noaa_token: str | None = None
     gemini_api_key: str | None = None

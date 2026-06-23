@@ -59,6 +59,12 @@ function fmtGrams(g: number): string {
   return `${Math.round(g)} g`;
 }
 
+function computeLabel(estimate: EstimateCarbonResponse): string {
+  if (estimate.compute_device === "cpu") return "Estimated CPU-hours";
+  if (estimate.compute_device === "api") return "API compute-hours";
+  return "Estimated GPU-hours";
+}
+
 export default function RunAnalysisModal({
   open,
   onClose,
@@ -191,7 +197,7 @@ export default function RunAnalysisModal({
                   value={fmtGrams(activeWindowGrams ?? estimate.co2_grams_optimal)}
                   tone={waitIsBetter ? "ok" : "warn"}
                 />
-                <Stat label="Estimated GPU-hours" value={`${estimate.gpu_hours}`} />
+                <Stat label={computeLabel(estimate)} value={`${estimate.compute_hours}`} />
                 <Stat label="Confidence" value={estimate.confidence} />
               </div>
 

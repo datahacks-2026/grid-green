@@ -14,6 +14,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.config import get_settings
+from app.services.grid_helpers import hours_needed_from_estimate
 from app.models.schemas import (
     CheckGridResponse,
     DetectedPattern,
@@ -90,8 +91,14 @@ def estimate_carbon(
         raise HTTPException(status_code=400, detail=f"Unsupported region: {payload.region}")
 
     _, current = forecaster.latest_intensity(payload.region)
+    preliminary = carbon_estimator.estimate(
+        code,
+        current_gco2_kwh=current,
+        optimal_gco2_kwh=current,
+    )
+    hours_needed = hours_needed_from_estimate(preliminary.compute_hours)
     _, optimal_expected, _, _, _ = forecaster.find_clean_window(
-        region=payload.region, hours_needed=4, max_delay_hours=48
+        region=payload.region, hours_needed=hours_needed, max_delay_hours=48
     )
     result = carbon_estimator.estimate(
         code,
@@ -101,6 +108,8 @@ def estimate_carbon(
     return EstimateCarbonResponse(
         co2_grams_now=result.co2_grams_now,
         co2_grams_optimal=result.co2_grams_optimal,
+        compute_hours=result.compute_hours,
+        compute_device=result.compute_device,
         gpu_hours=result.gpu_hours,
         kwh_estimated=result.kwh_estimated,
         confidence=result.confidence,

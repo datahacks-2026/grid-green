@@ -91,11 +91,14 @@ export function SuggestionSidebar({
 
   async function handleApply(s: Suggestion) {
     onApplySuggestion(s);
+    const baselineGrams = carbonContext?.estimate?.co2_grams_now ?? 0;
+    const savedGrams =
+      baselineGrams > 0 ? Math.round((s.carbon_saved_pct / 100) * baselineGrams) : 0;
     try {
       await api.recordEvent({
         session_id: getSessionId(),
         event: "suggestion_accepted",
-        co2_saved_grams: Math.round((s.carbon_saved_pct / 100) * 1000),
+        co2_saved_grams: savedGrams,
       });
       onScorecardChange?.();
     } catch {
