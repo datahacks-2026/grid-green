@@ -1,6 +1,6 @@
 """48h grid carbon-intensity forecaster.
 
-Tiered implementation per `a.md` §8.3 and §6 (graceful degradation):
+Tiered implementation with graceful degradation:
 
 1. **Prophet (preferred)** — if `prophet` is importable, fit a per-region
    Prophet model on the last 30 days of hourly history and predict 48h.

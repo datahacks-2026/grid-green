@@ -1,4 +1,4 @@
-"""Scripps Heat Map ingest + read (a.md §8.4, §8.12).
+"""Scripps Heat Map ingest + read.
 
 Loads a CSV slice of the UCSD campus mobile-weather-station data and
 exposes a tiny aggregate API. The point of this module is to satisfy the

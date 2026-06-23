@@ -1,4 +1,4 @@
-"""Reference Brev.dev embedding workload (a.md §8.8 + sponsor evidence).
+"""Reference Brev.dev embedding workload (sponsor evidence).
 
 Designed to be the *single* GPU-touching script in the project. Run it
 once on a Brev instance to:

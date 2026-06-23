@@ -1,4 +1,4 @@
-"""Person B HTTP routes merged into Person A's FastAPI app."""
+"""Model intelligence routes: greener suggestions and session scorecard."""
 
 from __future__ import annotations
 

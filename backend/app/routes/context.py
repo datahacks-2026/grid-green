@@ -1,4 +1,4 @@
-"""Optional context endpoints (a.md §8.4 — narrative, never the primary carbon signal)."""
+"""Optional context endpoints (narrative only — not the primary carbon signal)."""
 
 from __future__ import annotations
 

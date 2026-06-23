@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -31,58 +30,6 @@ def _get_client():
     except Exception as exc:  # pragma: no cover
         logger.warning("Gemini init failed, falling back: %s", exc)
         return None
-
-
-def explain_alternative(
-    *,
-    original_model: str,
-    alternative_model: str,
-    carbon_saved_pct: int,
-    performance_retained_pct: int,
-    citation: str,
-) -> str:
-    """Return a 1-2 sentence developer-facing justification."""
-    prompt = (
-        "You are a carbon-aware ML copilot. In 2 short sentences, explain to a "
-        "developer why swapping one model for another is a good trade-off. "
-        "Be concrete and cite the source.\n\n"
-        f"Original model: {original_model}\n"
-        f"Alternative: {alternative_model}\n"
-        f"Carbon savings: {carbon_saved_pct}%\n"
-        f"Performance retained: {performance_retained_pct}%\n"
-        f"Source: {citation}\n"
-    )
-
-    client = _get_client()
-    if client is None:
-        return _fallback(
-            alternative_model, carbon_saved_pct, performance_retained_pct, citation
-        )
-
-    try:
-        resp = client.generate_content(prompt)
-        text: Optional[str] = getattr(resp, "text", None)
-        if text:
-            return text.strip()
-    except Exception as exc:  # pragma: no cover
-        logger.warning("Gemini call failed, falling back: %s", exc)
-
-    return _fallback(
-        alternative_model, carbon_saved_pct, performance_retained_pct, citation
-    )
-
-
-def _fallback(
-    alternative_model: str,
-    carbon_saved_pct: int,
-    performance_retained_pct: int,
-    citation: str,
-) -> str:
-    return (
-        f"{alternative_model} retains {performance_retained_pct}% of the "
-        f"original's task performance while cutting compute carbon by "
-        f"{carbon_saved_pct}%. Source: {citation}"
-    )
 
 
 def polish_reasoning_paragraph(text: str) -> str:

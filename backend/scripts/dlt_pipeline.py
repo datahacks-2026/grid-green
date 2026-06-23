@@ -1,6 +1,6 @@
 """Databricks Delta Live Tables pipeline for EIA → bronze → silver → gold.
 
-This file is **dual-mode** (a.md §8.10):
+This file is **dual-mode** (local SQLite fallback + Databricks DLT):
 
 1. **Inside Databricks** — when `dlt` is importable, the `@dlt.table`
    decorators register three pipeline stages with the DLT runtime:

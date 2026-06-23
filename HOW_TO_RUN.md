@@ -1,6 +1,6 @@
 # GridGreen — how to run (local) + what is implemented
 
-This file is the **practical runbook** for the repo. API shapes live in [`CONTRACT.md`](CONTRACT.md). Person A execution notes live in [`a.md`](a.md).
+This file is the **practical runbook** for the repo. API shapes live in [`CONTRACT.md`](CONTRACT.md).
 
 ---
 

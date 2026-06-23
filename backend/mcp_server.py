@@ -1,4 +1,4 @@
-"""GridGreen MCP server (Person A — a.md §8.9).
+"""GridGreen MCP server — exposes core tools for Claude Desktop / Cursor.
 
 Exposes the same handlers that back the FastAPI HTTP routes as MCP tools
 so Claude Desktop (or any MCP client) can call them locally over stdio.

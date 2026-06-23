@@ -1,25 +1,21 @@
 # GridGreen — Backend
 
-FastAPI service: **grid intelligence** (`estimate_carbon`, `check_grid`,
-`find_clean_window`) plus **model suggestions** (`suggest_greener`, `scorecard`)
-and optional **MCP** for Claude Desktop.
+FastAPI service: grid intelligence (`estimate_carbon`, `check_grid`,
+`find_clean_window`), model suggestions (`suggest_greener`, `scorecard`),
+repo analysis, and an optional MCP server for Claude Desktop / Cursor.
 
-> API shapes: [`../CONTRACT.md`](../CONTRACT.md).
+> API shapes: [`../CONTRACT.md`](../CONTRACT.md). Full setup: [`../HOW_TO_RUN.md`](../HOW_TO_RUN.md).
 
 ---
 
 ## Quick start
 
-**Python:** **3.14** is supported. `requirements.txt` pins **pydantic 2.13.x**
-so `pydantic-core` installs from **prebuilt cp314 wheels** (no local Rust build).
-
 ```bash
 cd backend
-python3.14 -m venv .venv && source .venv/bin/activate   # or python3.12, etc.
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -U pip setuptools wheel
 pip install -r requirements.txt
 cp .env.example .env
-# Optional: EIA_API_KEY, SNOWFLAKE_*, GEMINI_API_KEY (see .env.example)
 python -m scripts.ingest_eia   # works without EIA key (mock / synthetic data)
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
@@ -42,7 +38,7 @@ pytest -q
 
 ```bash
 cd backend && source .venv/bin/activate
-python -m app.mcp_server
+python mcp_server.py
 ```
 
 Configure Claude Desktop using the frontend **`/mcp`** page (or your team’s JSON snippet).
@@ -61,6 +57,7 @@ backend/
 │   └── services/
 ├── scripts/ingest_eia.py
 ├── tests/
+├── mcp_server.py
 ├── data/                 # SQLite + cache (gitignored)
 ├── .env.example
 └── requirements.txt

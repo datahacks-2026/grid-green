@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # cleanup_repo.sh — remove disk bloat & leftover local artifacts.
-# Safe to run repeatedly. Does NOT touch git history (see scrub_history.sh).
+# Safe to run repeatedly. Does NOT touch git history.
 # Run from repo root:  bash scripts/cleanup_repo.sh
 
 set -euo pipefail

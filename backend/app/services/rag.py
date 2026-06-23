@@ -1,4 +1,4 @@
-"""RAG over the curated HF model corpus (Phase 5 + a.md §8.8).
+"""RAG over the curated HF model corpus.
 
 Runtime embedding tiers (auto-selected on first request):
 

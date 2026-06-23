@@ -13,7 +13,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import get_settings
-from app.routes import context, grid, health, repo, stubs
+from app.routes import context, grid, health, repo, suggestions
 from app.services.limits import limiter
 
 
@@ -28,7 +28,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="GridGreen Backend",
-        description="Carbon-aware copilot for ML engineers — Person A slice.",
+        description="Carbon-aware copilot for ML engineers.",
         version="0.1.0",
     )
 
@@ -66,7 +66,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(grid.router)
-    app.include_router(stubs.router)
+    app.include_router(suggestions.router)
     app.include_router(context.router)
     app.include_router(repo.router)
     return app

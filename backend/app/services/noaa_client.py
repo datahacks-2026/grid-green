@@ -1,4 +1,4 @@
-"""NOAA weather context (a.md §8.4).
+"""NOAA weather context for optional narrative endpoints.
 
 Used to add an "AC load / heat" narrative on top of the EIA carbon
 intensity. Uses NOAA's free public weather forecast API
