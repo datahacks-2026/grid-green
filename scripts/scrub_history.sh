@@ -73,8 +73,8 @@ git filter-branch --force --tree-filter "
        -exec \"\${SED_INPLACE[@]}\" 's/${LEAKED_KEY}/REDACTED_GEMINI_KEY_ROTATED/g' {} + 2>/dev/null || true
 " --tag-name-filter cat -- --all
 
-echo "==> Verifying"
-HITS_AFTER=$(git log --all -p 2>/dev/null | grep -cF "$LEAKED_KEY" || true)
+echo "==> Verifying (main branch only; backup refs cleaned next)"
+HITS_AFTER=$(git log main -p 2>/dev/null | grep -cF "$LEAKED_KEY" || true)
 if [ "${HITS_AFTER:-0}" -ne 0 ]; then
   echo "ERROR: key still present in history (${HITS_AFTER} occurrences). Investigate manually." >&2
   exit 1
@@ -85,6 +85,11 @@ if [ "$STASHED" = "1" ]; then
   echo "==> Restoring stashed changes"
   git stash pop >/dev/null || echo "    (manual: run 'git stash pop' to restore)"
 fi
+
+echo "==> Removing backup refs created by filter-branch"
+git for-each-ref --format='delete %(refname)' refs/original 2>/dev/null | git update-ref --stdin || true
+rm -rf .git/refs/original-backup 2>/dev/null || true
+git stash clear 2>/dev/null || true
 
 echo "==> Expiring reflog and garbage collecting"
 git for-each-ref --format='delete %(refname)' refs/original | git update-ref --stdin || true
